@@ -1,0 +1,10 @@
+node_modules/
+# Library — consumers resolve via their own lockfile; ours only exists so
+# `pnpm test` can pull unist-util-visit (+ auto-installed peers). Don't commit it.
+pnpm-lock.yaml
+# pnpm 11 writes this stub (allowBuilds prompts) when a transitive build script
+# is ignored. This is a single-package library, not a workspace — never commit it.
+pnpm-workspace.yaml
+dist/
+*.log
+.DS_Store

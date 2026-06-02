@@ -1,0 +1,151 @@
+/* astro-themed-mermaid — optional companion stylesheet.
+ *
+ * This is the CSS half of the polish. The plugin (index.mjs) rewrites the
+ * emitted SVG *geometry* (expands the viewBox, lifts + centers cluster labels,
+ * swaps colors for your CSS vars); these rules supply the matching *visuals*
+ * (the pill chips, drop-shadows, typography). The two are paired — e.g. the
+ * plugin pads the viewBox up by 22px precisely because the cluster pill below
+ * is shifted up 17px. Use them together, or copy these rules into your own
+ * stylesheet and tune to taste.
+ *
+ * COLOR-AGNOSTIC: every color here is `var(--mermaid-*, <dark default>)`.
+ * Define the `--mermaid-*` variables in your own stylesheet (see
+ * example/mermaid.css) to theme the diagrams for light/dark; the defaults
+ * below render a reasonable dark palette out of the box.
+ *
+ *   import "astro-themed-mermaid/styles.css";
+ *
+ * Color contract — define these in your own stylesheet to theme the diagrams
+ * (each has a built-in dark default via the `var(--x, default)` fallbacks):
+ *   --mermaid-surface          pill background           (default #14171c)
+ *   --mermaid-ink              title / strong text       (default #f1f3f7)
+ *   --mermaid-ink-muted        edge-label text           (default #9ca3af)
+ *   --mermaid-border           edge-label pill border    (default #2f343f)
+ *   --mermaid-cluster-border   cluster pill border       (default teal @ 30%)
+ */
+
+/* ---- sizing ----
+   Desktop: render at the natural viewBox size and center. Mobile: keep a
+   readable min-width and let wide diagrams scroll inside their wrapper. */
+svg[aria-roledescription^="flowchart"],
+svg[aria-roledescription^="sequence"],
+svg[aria-roledescription^="class"],
+svg[aria-roledescription^="state"] {
+  display: block;
+  margin-inline: auto;
+}
+
+@media (max-width: 768px) {
+  svg[aria-roledescription^="flowchart"],
+  svg[aria-roledescription^="sequence"],
+  svg[aria-roledescription^="class"],
+  svg[aria-roledescription^="state"] {
+    min-width: 540px;
+  }
+  :where(p, div):has(> svg[aria-roledescription^="flowchart"]),
+  :where(p, div):has(> svg[aria-roledescription^="sequence"]) {
+    overflow-x: auto;
+    overflow-y: visible;
+    scroll-padding-inline: 1rem;
+    scrollbar-width: thin;
+  }
+}
+
+/* ---- typography ----
+   line-height MUST stay at 1.5 (Mermaid's measurement default) so multi-line
+   labels don't overflow their boxes if a host `p { line-height }` bleeds in. */
+svg[aria-roledescription^="flowchart"] .nodeLabel p,
+svg[aria-roledescription^="flowchart"] .cluster-label .nodeLabel p,
+svg[aria-roledescription^="flowchart"] foreignObject p {
+  font-weight: 500 !important;
+  letter-spacing: -0.005em !important;
+  line-height: 1.5 !important;
+}
+
+/* ---- subgraph titles — pill chip straddling the cluster top border ----
+   foreignObject is shifted up 17px so the pill straddles the border; the
+   plugin expands the SVG viewBox top (PAD_TOP=22) so it isn't clipped. The
+   flex-center is required because the pill is wider than Mermaid's measured
+   foreignObject and would otherwise anchor to its left edge. */
+svg[aria-roledescription^="flowchart"] .cluster-label foreignObject {
+  overflow: visible;
+  transform: translateY(-17px);
+}
+svg[aria-roledescription^="flowchart"] .cluster-label foreignObject > div {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  overflow: visible !important;
+}
+svg[aria-roledescription^="flowchart"] .cluster-label .nodeLabel p {
+  display: inline-block !important;
+  font-size: 12.5px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.14em !important;
+  color: var(--mermaid-ink) !important;
+  background: var(--mermaid-surface) !important;
+  padding: 7px 18px !important;
+  border-radius: 999px !important;
+  border: 1px solid var(--mermaid-cluster-border) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22) !important;
+}
+
+/* ---- edge labels — small pill chip on the line ----
+   Mermaid uses `span.edgeLabel` (not `.nodeLabel`) for the inner text. */
+svg[aria-roledescription^="flowchart"] .edgeLabel foreignObject {
+  overflow: visible;
+}
+svg[aria-roledescription^="flowchart"] .edgeLabel foreignObject > div {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  overflow: visible !important;
+}
+svg[aria-roledescription^="flowchart"] .edgeLabel p {
+  display: inline-block !important;
+  font-size: 11.5px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.01em !important;
+  color: var(--mermaid-ink-muted) !important;
+  background: var(--mermaid-surface) !important;
+  padding: 4px 11px !important;
+  border-radius: 8px !important;
+  border: 1px solid var(--mermaid-border) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14) !important;
+  line-height: 1.4 !important;
+}
+/* Hide Mermaid's default edge-label backdrop rect — the pill replaces it. */
+svg[aria-roledescription^="flowchart"] .edgeLabel rect {
+  fill: transparent !important;
+  opacity: 0 !important;
+}
+
+/* ---- cylinder shape labels ----
+   Mermaid centers labels on the path bbox center, but a cylinder's filled
+   body sits ~7px above that, so nudge the label up to match the visual body. */
+svg[aria-roledescription^="flowchart"] .node:has(> path.basic.label-container) .label foreignObject {
+  transform: translateY(-7px);
+}
+
+/* ---- SVG-element polish ---- */
+svg[aria-roledescription^="flowchart"] .node {
+  filter:
+    drop-shadow(0 1px 2px rgba(0, 0, 0, 0.22))
+    drop-shadow(0 4px 8px rgba(0, 0, 0, 0.26));
+}
+svg[aria-roledescription^="flowchart"] .flowchart-link,
+svg[aria-roledescription^="flowchart"] .edgePath .path {
+  stroke-width: 1.4px !important;
+}
+svg[aria-roledescription^="flowchart"] .node rect.basic.label-container,
+svg[aria-roledescription^="flowchart"] .node polygon,
+svg[aria-roledescription^="flowchart"] .node path.basic.label-container {
+  rx: 8px;
+  ry: 8px;
+}
+svg[aria-roledescription^="flowchart"] .cluster rect {
+  rx: 14px;
+  ry: 14px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.12));
+}

@@ -1,0 +1,43 @@
+/* Example color layer for astro-themed-mermaid.
+ *
+ * 1. Pull in the structural/visual rules from the package.
+ * 2. Define the CSS variables the plugin's `colorReplacements` reference, plus
+ *    the ones `styles.css` reads — once for dark, once for light. Change a hue
+ *    here and both modes follow; the plugin and stylesheet hold no colors.
+ */
+
+@import "astro-themed-mermaid/styles.css";
+
+:root {
+  /* surfaces + ink (read by styles.css) */
+  --mermaid-surface: #14171c;
+  --mermaid-ink: #f1f3f7;
+  --mermaid-ink-muted: #9ca3af;
+  --mermaid-border: #2f343f;
+  --mermaid-line: #6b7280;
+  --mermaid-cluster-bg: color-mix(in oklab, #06b0bf 6%, transparent);
+  --mermaid-cluster-border: color-mix(in oklab, #06b0bf 30%, transparent);
+
+  /* classDef palette (read by colorReplacements). Borders brighter than fills.
+     Fills are tuned to pass WCAG AA (>= 4.5:1) against white label text. */
+  --mermaid-wh-bg: #086d77;
+  --mermaid-wh-border: #1dc9d8;
+  --mermaid-win-bg: #4f6a3b;
+  --mermaid-win-border: #8fa975;
+  --mermaid-fail-bg: #5c2f1b;
+  --mermaid-fail-border: #a0573b;
+  --mermaid-client-bg: #475569;
+  --mermaid-client-border: #94a3b8;
+  --mermaid-store-bg: #334155;
+  --mermaid-store-border: #64748b;
+}
+
+:root[data-theme="light"] {
+  --mermaid-surface: #ffffff;
+  --mermaid-ink: #14171c;
+  --mermaid-ink-muted: #4b5563;
+  --mermaid-border: #d1d5db;
+  --mermaid-line: #6b7280;
+  /* classDef fills already pass AA on white in both modes, so they carry over;
+     override any that need a lighter-mode tweak here. */
+}
