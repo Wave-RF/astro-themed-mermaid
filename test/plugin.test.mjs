@@ -14,6 +14,31 @@ test("factory returns the three wiring pieces", () => {
   assert.equal(typeof m.integration.hooks["astro:build:done"], "function");
 });
 
+test("inlined @font-face registers the PRIMARY family name, not the whole CSS stack", async () => {
+  // Regression guard: font.family is a full stack, but an @font-face descriptor
+  // must be a single family name. If we name the face after the stack string,
+  // the real family is never registered and build-time measurement falls back
+  // to a narrower font — boxes come out too small and labels clip at runtime.
+  const dir = await mkdtemp(join(tmpdir(), "atm-font-"));
+  const woff2 = join(dir, "x.woff2");
+  await writeFile(woff2, "not-a-real-font-bytes-dont-matter-for-the-descriptor");
+  const { rehypeMermaidOptions: o } = themedMermaid({
+    font: { family: '"Inter Variable", ui-sans-serif, system-ui, sans-serif', woff2 },
+  });
+  assert.ok(
+    typeof o.css === "string" && o.css.startsWith("data:text/css;base64,"),
+    "font CSS was inlined"
+  );
+  const css = Buffer.from(o.css.split(",")[1], "base64").toString("utf8");
+  assert.match(css, /font-family:"Inter Variable";/, "@font-face uses just the primary family");
+  assert.doesNotMatch(css, /ui-sans-serif/, "@font-face name is NOT the full stack");
+  // mermaid still renders/measures with the full stack so runtime fallbacks work
+  assert.equal(
+    o.mermaidConfig.fontFamily,
+    '"Inter Variable", ui-sans-serif, system-ui, sans-serif'
+  );
+});
+
 test("rehypeMermaidOptions carries fontFamily at top level AND in themeVariables", () => {
   const { rehypeMermaidOptions: o } = themedMermaid({
     font: { family: "Test Font" },

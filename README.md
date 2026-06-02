@@ -23,7 +23,7 @@ what makes it shareable across docs sites with different brands.
 ## Install
 
 ```sh
-pnpm add github:Wave-RF/astro-themed-mermaid#v0.1.0 rehype-mermaid
+pnpm add github:Wave-RF/astro-themed-mermaid#v0.1.1 rehype-mermaid
 ```
 
 `rehype-mermaid` (and its peer `mermaid`) is a peer dependency — you wire it up

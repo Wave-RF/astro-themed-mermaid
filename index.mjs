@@ -78,9 +78,20 @@ export function themedMermaid(config = {}) {
   if (font.woff2) {
     try {
       const b64 = readFileSync(font.woff2).toString("base64");
+      // The @font-face `font-family` DESCRIPTOR must be a single family name —
+      // but `font.family` is typically a full CSS stack (e.g. '"Inter Variable",
+      // ui-sans-serif, system-ui, sans-serif'). Register the inlined woff2 under
+      // just the FIRST family so Chromium provides it under the same name
+      // mermaidConfig.fontFamily resolves first. Passing the whole stack here
+      // names the face after the stack STRING, so the real family is never
+      // registered: measurement silently falls back to a narrower font, boxes
+      // come out too small, and labels clip on the right at runtime.
+      const primaryFamily =
+        (font.family || "").split(",")[0].trim().replace(/^["']|["']$/g, "") ||
+        "sans-serif";
       const inlineCss = [
         "@font-face{",
-        `font-family:${JSON.stringify(font.family)};`,
+        `font-family:${JSON.stringify(primaryFamily)};`,
         `src:url(data:font/woff2;base64,${b64}) format('woff2-variations');`,
         "font-weight:100 900;font-style:normal;font-display:block;}",
       ].join("");
