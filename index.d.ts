@@ -33,14 +33,31 @@ export interface ThemedMermaidConfig {
   sequence?: Record<string, unknown>;
   /** Mermaid `securityLevel` (default `"strict"`). */
   securityLevel?: string;
+  /**
+   * Directory for the per-diagram render cache used by `rehypeMermaid`
+   * (relative paths resolve against the working directory), or `false` to
+   * disable caching. Defaults to `node_modules/.cache/astro-themed-mermaid`.
+   * Entries are keyed on diagram source + render options + package versions,
+   * so theme/toolchain changes invalidate automatically; it is always safe to
+   * delete the directory.
+   */
+  cache?: false | string;
 }
 
 export interface ThemedMermaid {
   /**
    * Options for rehype-mermaid:
    * `rehypePlugins: [[rehypeMermaid, mermaid.rehypeMermaidOptions]]`.
+   * Prefer `rehypeMermaid` (below), which adds render caching.
    */
   rehypeMermaidOptions: Record<string, unknown>;
+  /**
+   * Drop-in rehype plugin — add to `markdown.rehypePlugins` directly (no
+   * options tuple). Wraps rehype-mermaid with a content-addressed per-diagram
+   * render cache: a document whose diagrams are all cached never launches the
+   * render browser. See the `cache` config option.
+   */
+  rehypeMermaid: () => (tree: unknown, file?: unknown) => Promise<void> | undefined;
   /** Remark plugin — add to `markdown.remarkPlugins`. Injects `classDefs`. */
   remarkInjectClassdefs: () => (tree: unknown) => void;
   /** Astro integration — add to `integrations`. Rewrites the built SVGs. */

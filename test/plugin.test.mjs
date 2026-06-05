@@ -143,3 +143,138 @@ test("build hook leaves non-mermaid HTML untouched", async () => {
 
   assert.equal(await readFile(file, "utf8"), html, "no mermaid → no rewrites");
 });
+
+// --- render cache ------------------------------------------------------------
+
+// A minimal hast tree with one fenced mermaid block, the shape Astro's
+// markdown pipeline emits (pre > code.language-mermaid > text).
+function mermaidTree(source) {
+  const code = {
+    type: "element",
+    tagName: "code",
+    properties: { className: ["language-mermaid"] },
+    children: [{ type: "text", value: source }],
+  };
+  const pre = { type: "element", tagName: "pre", properties: {}, children: [code] };
+  return { type: "root", children: [pre] };
+}
+
+// A delegate that splices a fake rendered SVG (with batch-style sequential
+// ids, like mermaid-isomorphic) and counts invocations — so the cache's
+// hit/miss/harvest paths run without a browser.
+function fakeDelegate(calls) {
+  return () => (tree) => {
+    calls.count++;
+    let n = 0;
+    for (const node of tree.children) {
+      if (node.tagName !== "pre") continue;
+      const id = `mermaid-${n++}`;
+      tree.children[tree.children.indexOf(node)] = {
+        type: "element",
+        tagName: "svg",
+        properties: { id, "aria-roledescription": "flowchart-v2" },
+        children: [
+          {
+            type: "element",
+            tagName: "style",
+            properties: {},
+            children: [{ type: "text", value: `#${id} .node{fill:red}` }],
+          },
+          {
+            type: "element",
+            tagName: "path",
+            properties: { "marker-end": `url(#${id}_flowchart-pointEnd)` },
+            children: [],
+          },
+        ],
+      };
+    }
+  };
+}
+
+test("render cache: miss renders + stores, hit splices without the delegate", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "atm-cache-"));
+  const { _internals } = themedMermaid({ cache: dir });
+  const calls = { count: 0 };
+  const plugin = _internals.createCachedRehypeMermaid({ delegate: fakeDelegate(calls) })();
+
+  const t1 = mermaidTree("graph TD;\n  A-->B");
+  await plugin(t1, {});
+  assert.equal(calls.count, 1, "first sight of the diagram renders");
+  assert.equal(t1.children[0].tagName, "svg");
+
+  const t2 = mermaidTree("graph TD;\n  A-->B");
+  await plugin(t2, {});
+  assert.equal(calls.count, 1, "cache hit: delegate not called again");
+  const svg = t2.children[0];
+  assert.equal(svg.tagName, "svg", "cached svg spliced in");
+  // Stored entries are re-id'd to a content-derived id that keeps the
+  // `mermaid-` prefix (the build:done patcher gates on `#mermaid-`), and the
+  // rewrite must reach style selectors and url(#…) refs consistently.
+  assert.match(svg.properties.id, /^mermaid-c[0-9a-f]{12}$/);
+  assert.match(svg.children[0].children[0].value, /^#mermaid-c[0-9a-f]{12} /);
+  assert.equal(
+    svg.children[1].properties["marker-end"],
+    `url(#${svg.properties.id}_flowchart-pointEnd)`
+  );
+});
+
+test("render cache: source or option changes change the key", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "atm-cache-"));
+  const a = themedMermaid({ cache: dir });
+  const b = themedMermaid({ cache: dir, themeVariables: { primaryColor: "#123456" } });
+  const src = "graph TD;\n  A-->B";
+  assert.notEqual(a._internals.diagramKey(src), a._internals.diagramKey(src + ";C-->D"));
+  assert.notEqual(a._internals.diagramKey(src), b._internals.diagramKey(src), "options are in the key");
+  assert.equal(a._internals.diagramKey(src), themedMermaid({ cache: dir })._internals.diagramKey(src), "key is deterministic");
+});
+
+test("render cache: corrupt entry degrades to a render, cache:false never touches disk", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "atm-cache-"));
+  const { _internals } = themedMermaid({ cache: dir });
+  const calls = { count: 0 };
+  const plugin = _internals.createCachedRehypeMermaid({ delegate: fakeDelegate(calls) })();
+  const src = "graph TD;\n  A-->B";
+
+  await writeFile(join(dir, `${_internals.diagramKey(src)}.json`), "{not json");
+  const t = mermaidTree(src);
+  await plugin(t, {});
+  assert.equal(calls.count, 1, "corrupt entry → rendered, not crashed");
+  assert.equal(t.children[0].tagName, "svg");
+
+  const off = themedMermaid({ cache: false });
+  const offCalls = { count: 0 };
+  const offPlugin = off._internals.createCachedRehypeMermaid({ delegate: fakeDelegate(offCalls) })();
+  const t2 = mermaidTree(src);
+  await offPlugin(t2, {});
+  await offPlugin(mermaidTree(src), {});
+  assert.equal(offCalls.count, 2, "cache disabled → every file renders");
+});
+
+test("render cache: non-mermaid documents never render", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "atm-cache-"));
+  const { _internals } = themedMermaid({ cache: dir });
+  const calls = { count: 0 };
+  const plugin = _internals.createCachedRehypeMermaid({ delegate: fakeDelegate(calls) })();
+  const tree = {
+    type: "root",
+    children: [
+      {
+        type: "element",
+        tagName: "pre",
+        properties: {},
+        children: [
+          {
+            type: "element",
+            tagName: "code",
+            properties: { className: ["language-js"] },
+            children: [{ type: "text", value: "1+1" }],
+          },
+        ],
+      },
+    ],
+  };
+  await plugin(tree, {});
+  assert.equal(calls.count, 0, "no mermaid blocks → no render call at all");
+  assert.equal(tree.children[0].tagName, "pre", "tree untouched");
+});

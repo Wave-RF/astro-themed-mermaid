@@ -15,12 +15,15 @@
 // One factory, three pieces to wire up:
 //   const mermaid = themedMermaid({ themeVariables, classDefs, colorReplacements, font, flowchart, sequence });
 //   markdown.remarkPlugins: [mermaid.remarkInjectClassdefs]
-//   markdown.rehypePlugins: [[rehypeMermaid, mermaid.rehypeMermaidOptions]]
+//   markdown.rehypePlugins: [mermaid.rehypeMermaid]   // cached; or the uncached
+//     spelling [[rehypeMermaid, mermaid.rehypeMermaidOptions]] — see README
 //   integrations: [..., mermaid.integration]
 
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { readFile, writeFile, readdir } from "node:fs/promises";
-import { resolve as joinPath } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join, resolve as joinPath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { visit } from "unist-util-visit";
 
@@ -64,6 +67,7 @@ export function themedMermaid(config = {}) {
     flowchart = {},
     sequence = {},
     securityLevel = "strict",
+    cache = join("node_modules", ".cache", "astro-themed-mermaid"),
   } = config;
 
   // --- build-time font inlining --------------------------------------------
@@ -301,9 +305,213 @@ export function themedMermaid(config = {}) {
     };
   }
 
+  // --- Render cache (content-addressed, per diagram) ------------------------
+  // Rendering goes through Chromium (mermaid-isomorphic), which dominates the
+  // build time of a docs site that hasn't touched its diagrams — i.e. almost
+  // every build. `rehypeMermaid` (the export below) wraps rehype-mermaid with
+  // a disk cache keyed on sha256(diagram source + render options + package
+  // versions): a file whose diagrams all hit is spliced from cache and never
+  // touches rehype-mermaid (so no browser launches at all); a file with any
+  // miss is delegated to rehype-mermaid wholesale, then the rendered SVGs are
+  // harvested back into the cache. Cache entries are the rendered hast
+  // elements as JSON — what rehype-mermaid would have spliced — so hits are
+  // byte-identical to fresh renders. The SVG post-processing above is
+  // untouched: it runs on built HTML at astro:build:done either way.
+  //
+  // Entry ids are rewritten to `mermaid-c<key>` at store time: render-time ids
+  // (`mermaid-0`, `mermaid-1`, …) are per-batch sequential, so entries cached
+  // from different builds could collide on one page (url(#…) refs are
+  // document-global). The rewritten id keeps the `mermaid-` prefix because the
+  // build:done patcher gates theme rewriting on seeing `#mermaid-`.
+  //
+  // Cache reads/writes are best-effort: any fs or parse error degrades to a
+  // normal render, never a failed build. Only the inline-svg strategy without
+  // the `dark` option is cached (this package always configures exactly that);
+  // anything else delegates straight through.
+
+  const cacheDir = cache === false ? null : joinPath(cache);
+
+  // Versions participate in the key so a toolchain bump invalidates stale
+  // renders. Best-effort: resolve each package's entry, then climb to its own
+  // package.json (handles pnpm's nested .pnpm layout); failures key as
+  // "unknown" rather than failing the build.
+  function packageVersion(specifier, fromDir) {
+    try {
+      const req = createRequire(fromDir ? join(fromDir, "noop.js") : import.meta.url);
+      let dir = dirname(req.resolve(specifier));
+      while (true) {
+        try {
+          const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+          if (pkg.name === specifier) return { version: pkg.version, dir };
+        } catch {
+          // keep climbing
+        }
+        const parent = dirname(dir);
+        if (parent === dir) return { version: "unknown", dir: null };
+        dir = parent;
+      }
+    } catch {
+      return { version: "unknown", dir: null };
+    }
+  }
+
+  let versionsMemo;
+  function toolchainVersions() {
+    if (versionsMemo) return versionsMemo;
+    let self = "unknown";
+    try {
+      self = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8")).version;
+    } catch {
+      // keyed as unknown
+    }
+    const rehype = packageVersion("rehype-mermaid");
+    const isomorphic = packageVersion("mermaid-isomorphic", rehype.dir ?? undefined);
+    const mermaidPkg = packageVersion("mermaid", isomorphic.dir ?? undefined);
+    versionsMemo = {
+      self,
+      "rehype-mermaid": rehype.version,
+      "mermaid-isomorphic": isomorphic.version,
+      mermaid: mermaidPkg.version,
+    };
+    return versionsMemo;
+  }
+
+  // Deterministic JSON: objects by sorted key, so option-object key order
+  // never shifts the hash.
+  function stableStringify(value) {
+    if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+    if (value && typeof value === "object") {
+      const keys = Object.keys(value).sort();
+      return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(value[k])}`).join(",")}}`;
+    }
+    return JSON.stringify(value);
+  }
+
+  function diagramKey(diagram) {
+    return createHash("sha256")
+      .update(stableStringify({ d: diagram, o: rehypeMermaidOptions, v: toolchainVersions() }))
+      .digest("hex")
+      .slice(0, 32);
+  }
+
+  function readCacheEntry(key) {
+    if (!cacheDir) return null;
+    try {
+      const parsed = JSON.parse(readFileSync(join(cacheDir, `${key}.json`), "utf8"));
+      // Shape check so a corrupt/foreign file degrades to a render, not a crash.
+      return parsed && parsed.type === "element" && parsed.tagName === "svg" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function writeCacheEntry(key, svgElement) {
+    if (!cacheDir) return;
+    try {
+      let json = JSON.stringify(svgElement);
+      // Re-id the entry (see section comment). The render-time id appears in
+      // properties.id, the scoped <style> selectors, and url(#…) marker refs —
+      // all plain `${prefix}-${n}` tokens, so a textual replace covers them.
+      const id = svgElement.properties?.id;
+      if (typeof id === "string" && id) json = json.replaceAll(id, `mermaid-c${key.slice(0, 12)}`);
+      mkdirSync(cacheDir, { recursive: true });
+      const tmp = join(cacheDir, `${key}.${process.pid}.tmp`);
+      writeFileSync(tmp, json);
+      renameSync(tmp, join(cacheDir, `${key}.json`)); // atomic-ish vs parallel pages
+    } catch {
+      // Cache is an optimization; never fail the build over it.
+    }
+  }
+
+  // Mermaid block detection, mirroring rehype-mermaid's rules (MIT, © Remco
+  // Haszing) so hit/miss decisions agree exactly with what it would render:
+  // a <pre class="mermaid">, a <pre> whose only non-whitespace child is a
+  // <code class="language-mermaid">, or such a <code> outside any <pre>.
+  function hasClass(node, name) {
+    const className = node.properties?.className;
+    const list = typeof className === "string" ? className.split(/\s+/) : className;
+    return Array.isArray(list) && list.includes(name);
+  }
+
+  function textContent(node) {
+    if (node.type === "text") return node.value;
+    if (!node.children) return "";
+    return node.children.map(textContent).join("");
+  }
+
+  function findMermaidInstances(tree) {
+    const found = [];
+    visit(tree, "element", (node, index, parent) => {
+      if (!parent || typeof index !== "number") return;
+      if (node.tagName === "pre") {
+        if (hasClass(node, "mermaid")) {
+          found.push({ parent, index, diagram: textContent(node) });
+          return;
+        }
+        let code;
+        for (const child of node.children) {
+          if (child.type === "text") {
+            if (/\w/.test(child.value)) return; // non-whitespace sibling → not ours
+          } else if (child.type === "element" && child.tagName === "code" && hasClass(child, "language-mermaid")) {
+            if (code) return; // two code children → not ours
+            code = child;
+          } else {
+            return; // any other sibling → not ours
+          }
+        }
+        if (code) found.push({ parent, index, diagram: textContent(code) });
+      } else if (node.tagName === "code" && hasClass(node, "language-mermaid") && parent.tagName !== "pre") {
+        found.push({ parent, index, diagram: textContent(node) });
+      }
+    });
+    return found;
+  }
+
+  // Exposed seam so tests can exercise hit/miss/harvest without a browser.
+  // rehype-mermaid (and through it mermaid-isomorphic → playwright) is loaded
+  // lazily on the first miss: a fully cached build never imports the render
+  // stack at all, and consumers without playwright installed can still import
+  // this package for the remark plugin / integration.
+  function createCachedRehypeMermaid({ delegate } = {}) {
+    const loadInner =
+      delegate ?? (() => import("rehype-mermaid").then((m) => m.default(rehypeMermaidOptions)));
+    const cacheable =
+      (rehypeMermaidOptions.strategy ?? "inline-svg") === "inline-svg" && !rehypeMermaidOptions.dark;
+    return function rehypeMermaidCached() {
+      let innerPromise; // one rehype-mermaid instance per processor, like the uncached spelling
+      const inner = () => (innerPromise ??= Promise.resolve(loadInner()));
+      return async (tree, file) => {
+        if (!cacheable || !cacheDir) return (await inner())(tree, file);
+        const instances = findMermaidInstances(tree);
+        if (instances.length === 0) return; // nothing to do — and no browser (parity with rehype-mermaid)
+
+        for (const instance of instances) {
+          instance.key = diagramKey(instance.diagram);
+          instance.cached = readCacheEntry(instance.key);
+        }
+
+        if (instances.every((i) => i.cached)) {
+          for (const { parent, index, cached } of instances) parent.children[index] = cached;
+          return; // full hit: rehype-mermaid never runs, Chromium never launches
+        }
+
+        // Any miss: let rehype-mermaid render the whole file (one browser
+        // batch either way), then harvest each replacement from the position
+        // we recorded — it replaces 1:1 in place, so (parent, index) is stable.
+        await (await inner())(tree, file);
+        for (const { parent, index, key } of instances) {
+          const rendered = parent.children[index];
+          if (rendered?.type === "element" && rendered.tagName === "svg") writeCacheEntry(key, rendered);
+        }
+      };
+    };
+  }
+
   return {
     rehypeMermaidOptions,
+    rehypeMermaid: createCachedRehypeMermaid(),
     remarkInjectClassdefs,
     integration: integration(),
+    _internals: { createCachedRehypeMermaid, diagramKey, findMermaidInstances },
   };
 }

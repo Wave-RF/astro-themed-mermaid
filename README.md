@@ -23,7 +23,7 @@ what makes it shareable across docs sites with different brands.
 ## Install
 
 ```sh
-pnpm add github:Wave-RF/astro-themed-mermaid#v0.1.1 rehype-mermaid
+pnpm add github:Wave-RF/astro-themed-mermaid#v0.2.0 rehype-mermaid
 ```
 
 `rehype-mermaid` (and its peer `mermaid`) is a peer dependency — you wire it up
@@ -39,7 +39,6 @@ branch; your lockfile then records the exact resolved commit.
 ```js
 // astro.config.mjs
 import { defineConfig } from "astro/config";
-import rehypeMermaid from "rehype-mermaid";
 import { themedMermaid } from "astro-themed-mermaid";
 
 const mermaid = themedMermaid({
@@ -58,7 +57,7 @@ const mermaid = themedMermaid({
 export default defineConfig({
   markdown: {
     remarkPlugins: [mermaid.remarkInjectClassdefs],
-    rehypePlugins: [[rehypeMermaid, mermaid.rehypeMermaidOptions]],
+    rehypePlugins: [mermaid.rehypeMermaid],
   },
   integrations: [/* starlight(...), */ mermaid.integration],
 });
@@ -74,6 +73,36 @@ flowchart TD
 ````
 
 A complete, copy-pasteable config + stylesheet lives in [`example/`](./example).
+
+## Render cache
+
+`mermaid.rehypeMermaid` wraps `rehype-mermaid` with a per-diagram render cache,
+because diagram SSR goes through a headless Chromium and dominates the build
+time of any site that didn't touch its diagrams — i.e. almost every build. The
+cache is content-addressed: each entry is keyed on
+`sha256(diagram source + render options + package versions)`, so theme,
+config, and toolchain changes invalidate automatically, and the entry stores
+the rendered hast element exactly as `rehype-mermaid` would have spliced it
+(ids are rewritten to content-derived ones so entries from different builds
+can't collide on one page). A document whose diagrams all hit never launches
+the browser — nor even imports `rehype-mermaid`; a document with any miss is
+rendered by `rehype-mermaid` as one normal batch and harvested back into the
+cache. Cache I/O is best-effort: a corrupt or unwritable cache degrades to a
+normal render, never a failed build.
+
+Entries land in `node_modules/.cache/astro-themed-mermaid/` by default —
+delete it freely. Configure via `cache`:
+
+```js
+themedMermaid({ cache: ".mermaid-cache" }); // custom dir (resolved from cwd)
+themedMermaid({ cache: false });            // disable; render every build
+```
+
+In CI the directory is cold unless you persist it (e.g. `actions/cache` keyed
+on the lockfile); with it persisted, diagram-free doc changes skip Chromium
+entirely. The uncached spelling
+`rehypePlugins: [[rehypeMermaid, mermaid.rehypeMermaidOptions]]` keeps working
+if you prefer to wire `rehype-mermaid` yourself.
 
 ## Styling
 
