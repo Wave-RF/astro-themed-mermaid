@@ -135,6 +135,7 @@ The plugin rewrites SVG *geometry* and swaps in your CSS variables; the matching
 |---|---|---|
 | `font.family` | string | font for build-time SSR measurement |
 | `font.woff2` | string (abs path) | woff2 inlined into build Chromium so it measures with the real font |
+| `measurementCss` | string | label-metric CSS injected at measure time (see [Label clipping](#label-clipping)) |
 | `themeVariables` | object | Mermaid `base` theme variables (build-time hex) |
 | `classDefs` | string[] | `classDef …` lines injected into every flowchart/graph block |
 | `colorReplacements` | `[from,to][]` | baked color → runtime CSS var; the **only** place colors enter |
@@ -148,6 +149,38 @@ The factory returns three things to wire up:
 | `remarkInjectClassdefs` | `markdown.remarkPlugins` |
 | `rehypeMermaidOptions` | `markdown.rehypePlugins: [[rehypeMermaid, …]]` |
 | `integration` | `integrations` |
+
+## Label clipping
+
+Mermaid sizes each node's box by **measuring** the label in the build-time
+Chromium; the browser then **displays** it. If display is even ~1px wider than
+the measurement, the `<foreignObject>` crops the last glyph (`Buffer Consumer`
+→ `Buffer Consume`). Two things cause that drift, and both are fixed by feeding
+the build the same inputs the browser uses:
+
+- **Font** — set `font.woff2` so the real font is loaded at measure time
+  (a fallback like Arial measures ~6–8% narrower than Inter).
+- **Label metrics** — if your stylesheet renders labels at, say,
+  `font-weight: 500` (or any `letter-spacing`), Mermaid measured them at the
+  default `400` and every box is a hair too narrow. Pass those rules as
+  `measurementCss`:
+
+  ```js
+  themedMermaid({
+    font: { family: '"Inter Variable", sans-serif', woff2: "/abs/inter.woff2" },
+    // matches what your global CSS applies to node labels at display time,
+    // plus a hair of padding for sub-pixel safety:
+    measurementCss:
+      ".nodeLabel p{font-weight:500;letter-spacing:-0.005em;padding-inline:1.5px;}",
+  });
+  ```
+
+  > **Selectors must be bare.** Mermaid measures the label *before* it's
+  > parented by the final `svg[aria-roledescription="flowchart…"]`, so a rule
+  > scoped as `svg[aria-roledescription^="flowchart"] .nodeLabel p { … }`
+  > matches at **display** time but is a **no-op at measure time**. Drop the
+  > ancestor: `.nodeLabel p { … }`. (Edge/cluster labels usually render as
+  > `overflow: visible` pills and don't need this — scope to `.nodeLabel p`.)
 
 ## How it works
 

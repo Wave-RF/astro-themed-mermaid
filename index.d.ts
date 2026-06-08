@@ -27,6 +27,15 @@ export interface ThemedMermaidConfig {
   colorReplacements?: Array<[string, string]>;
   /** Font used for SSR measurement. */
   font?: ThemedMermaidFont;
+  /**
+   * Extra CSS injected into the build-time render page so Mermaid measures
+   * labels with the same metrics (font-weight / letter-spacing / padding) your
+   * stylesheet displays them at. Without it, labels whose display weight
+   * differs from the measured one clip on the right. Selectors must NOT include
+   * the `svg[aria-roledescription…]` ancestor (Mermaid measures before that
+   * wrapper exists) — use bare `.nodeLabel p`, `.edgeLabel p`, etc.
+   */
+  measurementCss?: string;
   /** Mermaid flowchart config (non-color), e.g. `{ curve: "basis", useMaxWidth: true }`. */
   flowchart?: Record<string, unknown>;
   /** Mermaid sequence config (non-color). */
