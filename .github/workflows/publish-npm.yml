@@ -49,7 +49,7 @@ jobs:
       # "merge without waiting for requirements" option (enforce_admins is off).
       # Optional upgrade: set a RELEASE_PLEASE_TOKEN PAT to have the release PR run
       # CI automatically. Manifest mode is auto-detected from the config + manifest.
-      - uses: googleapis/release-please-action@v4 # pin to a SHA when convenient
+      - uses: googleapis/release-please-action@v5 # pin to a SHA when convenient
         id: release
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
