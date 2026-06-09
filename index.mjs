@@ -54,6 +54,13 @@ const FLOWCHART_SVG_RE =
  * @param {{family?:string, woff2?:string}} [config.font] - Font used for SSR
  *   measurement. If `woff2` (an absolute path) is given it's inlined as a
  *   data URL with font-display:block so Chromium measures with the real font.
+ * @param {string} [config.measurementCss] - Extra CSS injected into the
+ *   build-time render page so Mermaid measures labels with the SAME metrics
+ *   (font-weight / letter-spacing / padding) your stylesheet displays them at —
+ *   otherwise labels whose display weight differs from the measured one clip on
+ *   the right. Selectors must NOT include the `svg[aria-roledescription…]`
+ *   ancestor (Mermaid measures before that wrapper exists); use bare
+ *   `.nodeLabel p`, `.edgeLabel p`, etc.
  * @param {object} [config.flowchart] - Mermaid flowchart config (non-color).
  * @param {object} [config.sequence] - Mermaid sequence config (non-color).
  * @param {string} [config.securityLevel] - Mermaid securityLevel (default strict).
@@ -64,21 +71,37 @@ export function themedMermaid(config = {}) {
     classDefs = [],
     colorReplacements = [],
     font = {},
+    measurementCss = "",
     flowchart = {},
     sequence = {},
     securityLevel = "strict",
     cache = join("node_modules", ".cache", "astro-themed-mermaid"),
   } = config;
 
-  // --- build-time font inlining --------------------------------------------
-  // Mermaid measures node widths in the build-time Chromium against whatever
-  // font is available. If the declared font isn't actually loaded there, labels
-  // are measured against a fallback (~Arial) and overflow at runtime (Inter is
-  // ~6-8% wider per char). Inlining the woff2 with font-display:block makes
-  // Chromium load it synchronously before measuring. (fontsource's own CSS uses
-  // font-display:swap, which doesn't block, so it can't substitute for this.)
+  // --- build-time measurement CSS ------------------------------------------
+  // Mermaid sizes each label's box by MEASURING the label DOM in the build-time
+  // Chromium, then the host browser DISPLAYS it. Anything that makes display
+  // wider than measurement clips the last glyph (foreignObject crops to its
+  // box). Two independent culprits, two pieces of injected CSS:
+  //
+  //   1. The FONT. If the declared font isn't loaded in the build Chromium,
+  //      labels are measured against a fallback (~Arial) and overflow at
+  //      runtime (Inter is ~6-8% wider per char). Inlining the woff2 with
+  //      font-display:block makes Chromium load it synchronously before
+  //      measuring. (fontsource's own CSS uses font-display:swap, which doesn't
+  //      block, so it can't substitute for this.)
+  //
+  //   2. Label METRICS — font-weight / letter-spacing / padding. If your
+  //      stylesheet renders node labels at, say, weight 500 but Mermaid
+  //      measured them at the default 400, every box is ~1px too narrow and the
+  //      last letter clips. Pass those rules as `measurementCss` so the build
+  //      measures what the browser shows. IMPORTANT: Mermaid measures the label
+  //      BEFORE it's parented by the final `svg[aria-roledescription="flowchart…"]`,
+  //      so write these selectors WITHOUT that ancestor — e.g. `.nodeLabel p`,
+  //      not `svg[aria-roledescription^="flowchart"] .nodeLabel p` (the latter
+  //      matches at display time but NOT at measure time, so it's a no-op here).
   let fontFamily = font.family || '"Arial", sans-serif';
-  let fontCssDataUrl;
+  const cssParts = [];
   if (font.woff2) {
     try {
       const b64 = readFileSync(font.woff2).toString("base64");
@@ -93,24 +116,30 @@ export function themedMermaid(config = {}) {
       const primaryFamily =
         (font.family || "").split(",")[0].trim().replace(/^["']|["']$/g, "") ||
         "sans-serif";
-      const inlineCss = [
-        "@font-face{",
-        `font-family:${JSON.stringify(primaryFamily)};`,
-        `src:url(data:font/woff2;base64,${b64}) format('woff2-variations');`,
-        "font-weight:100 900;font-style:normal;font-display:block;}",
-      ].join("");
-      fontCssDataUrl =
-        "data:text/css;base64," + Buffer.from(inlineCss).toString("base64");
+      cssParts.push(
+        [
+          "@font-face{",
+          `font-family:${JSON.stringify(primaryFamily)};`,
+          `src:url(data:font/woff2;base64,${b64}) format('woff2-variations');`,
+          "font-weight:100 900;font-style:normal;font-display:block;}",
+        ].join("")
+      );
     } catch {
       // Font file not on disk (e.g. fresh clone, no install). Fall back to the
       // default family so the build still succeeds.
       fontFamily = '"Arial", sans-serif';
     }
   }
+  // Caller's label-metric rules, injected after the @font-face so they can
+  // depend on the inlined font being available.
+  if (measurementCss) cssParts.push(measurementCss);
+  const measurementCssDataUrl = cssParts.length
+    ? "data:text/css;base64," + Buffer.from(cssParts.join("")).toString("base64")
+    : undefined;
 
   const rehypeMermaidOptions = {
     strategy: "inline-svg",
-    ...(fontCssDataUrl ? { css: fontCssDataUrl } : {}),
+    ...(measurementCssDataUrl ? { css: measurementCssDataUrl } : {}),
     mermaidConfig: {
       // `fontFamily` must sit at the top level — mermaid-isomorphic hard-codes
       // arial here if absent and ignores the same key in themeVariables.

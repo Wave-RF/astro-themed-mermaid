@@ -1,6 +1,6 @@
 {
   "name": "astro-themed-mermaid",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Build-time, theme-aware Mermaid diagrams for Astro / Starlight — color-agnostic SVG rewriting (CSS-variable theming, cluster-title pills, edge-label pills) on top of rehype-mermaid.",
   "type": "module",
   "license": "MIT",

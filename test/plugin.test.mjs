@@ -39,6 +39,40 @@ test("inlined @font-face registers the PRIMARY family name, not the whole CSS st
   );
 });
 
+test("measurementCss is appended to the injected build-time CSS", async () => {
+  // Label metrics (weight/letter-spacing/padding) the host applies at display
+  // time must also be seen at measure time, or boxes are sized too narrow and
+  // the last glyph clips. measurementCss is how the caller supplies them.
+  const dir = await mkdtemp(join(tmpdir(), "atm-meas-"));
+  const woff2 = join(dir, "x.woff2");
+  await writeFile(woff2, "not-a-real-font-bytes");
+  const meas = ".nodeLabel p{font-weight:500;letter-spacing:-0.005em;padding-inline:1.5px;}";
+  const { rehypeMermaidOptions: o } = themedMermaid({
+    font: { family: '"Inter Variable", sans-serif', woff2 },
+    measurementCss: meas,
+  });
+  const css = Buffer.from(o.css.split(",")[1], "base64").toString("utf8");
+  assert.match(css, /@font-face\{/, "still inlines the font");
+  assert.ok(css.includes(meas), "appends the caller's measurementCss verbatim");
+  assert.ok(css.indexOf("@font-face") < css.indexOf(meas), "measurementCss comes AFTER the @font-face");
+});
+
+test("measurementCss is injected even without a woff2", () => {
+  const meas = ".nodeLabel p{font-weight:500;}";
+  const { rehypeMermaidOptions: o } = themedMermaid({ measurementCss: meas });
+  assert.ok(
+    typeof o.css === "string" && o.css.startsWith("data:text/css;base64,"),
+    "css is present from measurementCss alone"
+  );
+  const css = Buffer.from(o.css.split(",")[1], "base64").toString("utf8");
+  assert.equal(css, meas, "css is exactly the measurementCss when there's no font");
+});
+
+test("no css option when neither font nor measurementCss is given", () => {
+  const { rehypeMermaidOptions: o } = themedMermaid();
+  assert.equal("css" in o, false, "css is omitted entirely so rehype-mermaid uses its defaults");
+});
+
 test("rehypeMermaidOptions carries fontFamily at top level AND in themeVariables", () => {
   const { rehypeMermaidOptions: o } = themedMermaid({
     font: { family: "Test Font" },
