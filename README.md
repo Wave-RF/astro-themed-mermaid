@@ -1,4 +1,4 @@
-# astro-themed-mermaid
+# @wave-rf/astro-themed-mermaid
 
 Build-time, theme-aware [Mermaid](https://mermaid.js.org/) diagrams for Astro /
 Starlight docs sites. Renders diagrams with
@@ -23,12 +23,15 @@ what makes it shareable across docs sites with different brands.
 ## Install
 
 ```sh
-pnpm add github:Wave-RF/astro-themed-mermaid#v0.3.0 rehype-mermaid
+pnpm add @wave-rf/astro-themed-mermaid rehype-mermaid
 ```
 
 `rehype-mermaid` (and its peer `mermaid`) is a peer dependency — you wire it up
-yourself (see below). Pin to a tag (or commit SHA) rather than a floating
-branch; your lockfile then records the exact resolved commit.
+yourself (see below).
+
+Published under semver: `^0.3.0` tracks features and fixes without breaking
+changes (during `0.x`, breaking changes bump the minor). For the bleeding edge,
+the `dev` dist-tag follows `main`: `pnpm add @wave-rf/astro-themed-mermaid@dev`.
 
 > Diagram SSR needs a headless Chromium. `rehype-mermaid` uses Playwright —
 > `pnpm exec playwright install chromium` (Astro/Starlight setups usually do
@@ -39,7 +42,7 @@ branch; your lockfile then records the exact resolved commit.
 ```js
 // astro.config.mjs
 import { defineConfig } from "astro/config";
-import { themedMermaid } from "astro-themed-mermaid";
+import { themedMermaid } from "@wave-rf/astro-themed-mermaid";
 
 const mermaid = themedMermaid({
   font: { family: '"Inter Variable", sans-serif', woff2: "/abs/path/to/inter.woff2" },
@@ -113,7 +116,7 @@ The plugin rewrites SVG *geometry* and swaps in your CSS variables; the matching
 
    ```js
    // in your global CSS, or customCss in Starlight
-   import "astro-themed-mermaid/styles.css";
+   import "@wave-rf/astro-themed-mermaid/styles.css";
    ```
 
    then define the color variables it reads (`--mermaid-surface`, `--mermaid-ink`,

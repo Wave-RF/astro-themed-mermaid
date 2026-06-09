@@ -1,0 +1,4 @@
+# Gitignored paths seeded into a new `wt` worktree from main (see .config/wt.toml).
+# Keeping node_modules/ (incl. node_modules/.cache, the default render cache)
+# means a fresh worktree doesn't re-download deps or re-render every diagram.
+node_modules/

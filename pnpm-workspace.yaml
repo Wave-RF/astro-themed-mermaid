@@ -1,0 +1,9 @@
+# pnpm config. pnpm 11 reads its settings from here even for a single-package
+# repo (the filename is historical — this is NOT a multi-package workspace decl).
+#
+# Don't auto-install the peer deps (astro, rehype-mermaid) into our node_modules:
+# the test suite needs only `unist-util-visit`, and pulling in astro drags along
+# esbuild/sharp build scripts that pnpm won't run unprompted
+# (ERR_PNPM_IGNORED_BUILDS), which fails the pre-run deps check locally and in CI.
+# Peers are the consumer's to provide.
+autoInstallPeers: false
