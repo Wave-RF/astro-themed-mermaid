@@ -25,6 +25,8 @@ npm publish --access public
 
 `publishConfig.access` is already `public` in `package.json`, so `--access public` is belt-and-suspenders. This publishes `0.3.0` to the `latest` tag.
 
+> This manual `0.3.0` won't carry a provenance attestation (provenance can only be generated from CI/OIDC — a laptop publish errors with "provider: null" if you force it). That's expected and fine for the one-time bootstrap; every CI publish from `0.3.1` on (and the `@dev` builds) is provenance-attested via the `--provenance` flag in `publish-npm.yml`.
+
 **3. Configure the trusted publisher.** On npmjs.com → the package → **Settings → Trusted Publisher** → add a **GitHub Actions** publisher with **exactly**:
 
 | Field | Value |
@@ -36,7 +38,7 @@ npm publish --access public
 
 The workflow filename is matched literally — if you ever rename `publish-npm.yml`, update this or publishing breaks. (Optional hardening: once OIDC works, enable "Require 2FA and disallow tokens" so CI is the only publish path.)
 
-**4. (Recommended) release-PR CI token.** Create a **fine-grained PAT** (repo `astro-themed-mermaid` only; permissions **Contents: write**, **Pull requests: write**) and add it as the repo secret **`RELEASE_PLEASE_TOKEN`**. Without it, release-please falls back to `GITHUB_TOKEN`, whose PRs **don't trigger CI** — so the release PR's required `ci`/`pr-title` checks never run and it can't be merged under branch protection. With the PAT, the release PR runs CI like any other.
+**4. No extra token needed.** release-please uses the built-in `GITHUB_TOKEN`. One consequence: a PR opened by `GITHUB_TOKEN` **doesn't trigger CI**, so the **release PR's** `ci`/`pr-title` checks won't run on their own. Because `scripts/setup-repo.sh` leaves `enforce_admins` **off**, you merge the release PR with the admin **"Merge without waiting for requirements to be met"** button — one extra click per release. (Human and Dependabot PRs run CI normally; only the bot-opened release PR needs the override.) *Optional upgrade later:* a fine-grained PAT in the secret `RELEASE_PLEASE_TOKEN` (Contents + Pull requests: write) would let the release PR run CI automatically — but it's not required.
 
 **5. Branch protection + merge settings.** After this PR is merged **and CI has run once on `main`** (so the check names `ci` and `pr-title` exist), run:
 
@@ -76,4 +78,4 @@ gh release view v<version>
 - **`publish-release` never ran after merging the release PR** — check the `release-please` job's `releases_created` output; if release-please used `GITHUB_TOKEN` (no PAT) the release may not have been created cleanly. Confirm the tag/Release exist.
 - **OIDC publish failed (`401`/`403`)** — the trusted-publisher config doesn't match: verify org/repo and that the **workflow filename** is exactly `publish-npm.yml`. The job must have `permissions: id-token: write` (it does).
 - **`publish-dev` skipped with "not on npm yet"** — the one-time manual publish (step 2) hasn't happened; do it, then the next `main` push publishes `@dev`.
-- **Release PR sits with no checks / can't merge** — add the `RELEASE_PLEASE_TOKEN` PAT (step 4).
+- **Release PR sits with no checks / can't merge** — expected without a PAT (step 4): the bot-opened PR doesn't trigger CI. Merge it with the admin "Merge without waiting for requirements to be met" button (`enforce_admins` is off). Or add the optional `RELEASE_PLEASE_TOKEN` PAT to make CI run on it.
