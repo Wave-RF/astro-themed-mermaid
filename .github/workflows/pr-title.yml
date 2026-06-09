@@ -28,9 +28,11 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Validate PR title (Conventional Commits)
+        # Dependabot's titles aren't author-controlled: they use a capital subject
+        # ("ci: Bump …") and grouped lengths over the cap. Its prefix is already a
+        # valid Conventional-Commit type, so trust the bot and skip the check for
+        # it (the step skips → the job still succeeds → the required check is green).
+        if: ${{ github.event.pull_request.user.login != 'dependabot[bot]' }}
         env:
           TITLE: ${{ github.event.pull_request.title }}
-          # Dependabot's grouped titles can exceed 72 chars — exempt the length
-          # cap (format is still enforced).
-          PR_TITLE_SKIP_LENGTH: ${{ github.event.pull_request.user.login == 'dependabot[bot]' && '1' || '' }}
         run: bash scripts/lint-pr-title.sh "$TITLE"
