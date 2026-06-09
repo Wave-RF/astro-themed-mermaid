@@ -9,6 +9,13 @@ hand-edit it.
 The entries below predate automated releases (they map to the git tags
 `v0.1.0`–`v0.3.0`).
 
+## [0.3.1](https://github.com/Wave-RF/astro-themed-mermaid/compare/v0.3.0...v0.3.1) (2026-06-09)
+
+
+### Features
+
+* add mermaidConfig escape-hatch for non-color settings ([#5](https://github.com/Wave-RF/astro-themed-mermaid/issues/5)) ([632aa2e](https://github.com/Wave-RF/astro-themed-mermaid/commit/632aa2e5ec0f022f625d2cf841c52dd6bae6c95b))
+
 ## 0.3.0
 
 - **feat:** `measurementCss` option so label metrics match at measure time, fixing labels that clipped when the display weight/letter-spacing differed from the measured one.
