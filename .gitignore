@@ -1,10 +1,21 @@
 node_modules/
-# Library — consumers resolve via their own lockfile; ours only exists so
-# `pnpm test` can pull unist-util-visit (+ auto-installed peers). Don't commit it.
+# Library — consumers resolve via their own lockfile; ours isn't committed (it
+# only pins our devDeps + unist-util-visit for `pnpm test`). pnpm *config* lives
+# in pnpm-workspace.yaml, which IS committed.
 pnpm-lock.yaml
-# pnpm 11 writes this stub (allowBuilds prompts) when a transitive build script
-# is ignored. This is a single-package library, not a workspace — never commit it.
-pnpm-workspace.yaml
 dist/
 *.log
 .DS_Store
+
+# Local git worktrees
+.worktrees/
+
+# Claude Code per-user local state (never committed)
+.claude/settings.local.json
+.claude/worktrees/
+
+# Tree-keyed verify + per-reviewer pre-push markers (written by hooks/scripts)
+tmp/
+
+# Tool caches seeded into worktrees (.worktreeinclude)
+.bin/

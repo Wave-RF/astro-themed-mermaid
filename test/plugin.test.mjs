@@ -1,8 +1,8 @@
-import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { themedMermaid } from "../index.mjs";
 
@@ -54,7 +54,10 @@ test("measurementCss is appended to the injected build-time CSS", async () => {
   const css = Buffer.from(o.css.split(",")[1], "base64").toString("utf8");
   assert.match(css, /@font-face\{/, "still inlines the font");
   assert.ok(css.includes(meas), "appends the caller's measurementCss verbatim");
-  assert.ok(css.indexOf("@font-face") < css.indexOf(meas), "measurementCss comes AFTER the @font-face");
+  assert.ok(
+    css.indexOf("@font-face") < css.indexOf(meas),
+    "measurementCss comes AFTER the @font-face"
+  );
 });
 
 test("measurementCss is injected even without a woff2", () => {
@@ -140,7 +143,7 @@ test("build hook rewrites emitted SVG (br fix, color swap, forced-white strip)",
 
   const logs = [];
   await integration.hooks["astro:build:done"]({
-    dir: pathToFileURL(dir + "/"),
+    dir: pathToFileURL(`${dir}/`),
     logger: { info: (m) => logs.push(m) },
   });
 
@@ -171,7 +174,7 @@ test("build hook leaves non-mermaid HTML untouched", async () => {
   await writeFile(file, html);
 
   await integration.hooks["astro:build:done"]({
-    dir: pathToFileURL(dir + "/"),
+    dir: pathToFileURL(`${dir}/`),
     logger: { info: () => {} },
   });
 
@@ -258,9 +261,17 @@ test("render cache: source or option changes change the key", async () => {
   const a = themedMermaid({ cache: dir });
   const b = themedMermaid({ cache: dir, themeVariables: { primaryColor: "#123456" } });
   const src = "graph TD;\n  A-->B";
-  assert.notEqual(a._internals.diagramKey(src), a._internals.diagramKey(src + ";C-->D"));
-  assert.notEqual(a._internals.diagramKey(src), b._internals.diagramKey(src), "options are in the key");
-  assert.equal(a._internals.diagramKey(src), themedMermaid({ cache: dir })._internals.diagramKey(src), "key is deterministic");
+  assert.notEqual(a._internals.diagramKey(src), a._internals.diagramKey(`${src};C-->D`));
+  assert.notEqual(
+    a._internals.diagramKey(src),
+    b._internals.diagramKey(src),
+    "options are in the key"
+  );
+  assert.equal(
+    a._internals.diagramKey(src),
+    themedMermaid({ cache: dir })._internals.diagramKey(src),
+    "key is deterministic"
+  );
 });
 
 test("render cache: corrupt entry degrades to a render, cache:false never touches disk", async () => {
@@ -278,7 +289,9 @@ test("render cache: corrupt entry degrades to a render, cache:false never touche
 
   const off = themedMermaid({ cache: false });
   const offCalls = { count: 0 };
-  const offPlugin = off._internals.createCachedRehypeMermaid({ delegate: fakeDelegate(offCalls) })();
+  const offPlugin = off._internals.createCachedRehypeMermaid({
+    delegate: fakeDelegate(offCalls),
+  })();
   const t2 = mermaidTree(src);
   await offPlugin(t2, {});
   await offPlugin(mermaidTree(src), {});

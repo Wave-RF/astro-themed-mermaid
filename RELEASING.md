@@ -1,0 +1,79 @@
+# Releasing & maintenance
+
+How `@wave-rf/astro-themed-mermaid` is published, and the **one-time bootstrap** to enable it.
+
+## The model
+
+- **Versioning is automated** by [release-please](https://github.com/googleapis/release-please) from Conventional-Commit messages. You don't bump versions or create tags by hand.
+- **Auth is OIDC trusted publishing** — no `NPM_TOKEN` secret in the repo. Publishes are short-lived-token + provenance-attested, from `.github/workflows/publish-npm.yml`.
+- **Two npm channels:** `latest` (+ `alpha`/`beta`/`rc`/`next` for prereleases) from tagged releases, and `dev` (a content-addressed `0.0.0-dev.<hash>` on every push to `main`).
+- During **0.x**: breaking (`feat!`/`BREAKING CHANGE`) → **minor**, `feat`/`fix` → **patch** (`release-please-config.json`), so `^0.x` consumers auto-get features+fixes and are shielded from breaking changes.
+
+## One-time bootstrap (do once, in order)
+
+> **Why the first publish is manual:** npm OIDC trusted publishing can't *create* a package that doesn't exist yet — the trusted-publisher config attaches to an existing package. So the very first publish is a manual `npm publish`; CI/OIDC takes over from the next release.
+
+**1. npm org.** Make sure the **`@wave-rf`** org exists on npmjs.com and your account can publish to it.
+
+**2. First manual publish** (creates the package). From a checkout of this branch (or `main` after merge), logged in as a `@wave-rf` member:
+
+```sh
+npm login
+npm pack --dry-run        # sanity: should list ONLY index.mjs, index.d.ts, styles.css, README.md, LICENSE, package.json
+npm publish --access public
+```
+
+`publishConfig.access` is already `public` in `package.json`, so `--access public` is belt-and-suspenders. This publishes `0.3.0` to the `latest` tag.
+
+**3. Configure the trusted publisher.** On npmjs.com → the package → **Settings → Trusted Publisher** → add a **GitHub Actions** publisher with **exactly**:
+
+| Field | Value |
+| ----- | ----- |
+| Organization / owner | `Wave-RF` |
+| Repository | `astro-themed-mermaid` |
+| Workflow filename | `publish-npm.yml` |
+| Environment | *(leave blank — the jobs declare no `environment:`)* |
+
+The workflow filename is matched literally — if you ever rename `publish-npm.yml`, update this or publishing breaks. (Optional hardening: once OIDC works, enable "Require 2FA and disallow tokens" so CI is the only publish path.)
+
+**4. (Recommended) release-PR CI token.** Create a **fine-grained PAT** (repo `astro-themed-mermaid` only; permissions **Contents: write**, **Pull requests: write**) and add it as the repo secret **`RELEASE_PLEASE_TOKEN`**. Without it, release-please falls back to `GITHUB_TOKEN`, whose PRs **don't trigger CI** — so the release PR's required `ci`/`pr-title` checks never run and it can't be merged under branch protection. With the PAT, the release PR runs CI like any other.
+
+**5. Branch protection + merge settings.** After this PR is merged **and CI has run once on `main`** (so the check names `ci` and `pr-title` exist), run:
+
+```sh
+bash scripts/setup-repo.sh
+```
+
+This sets squash-only merges (PR title as the commit subject), auto-merge + auto-delete, and protects `main`: PR required (0 approvals — solo-friendly), required checks `ci` + `pr-title`, **no force-push, no deletion**, dismiss-stale-reviews, conversation resolution. `enforce_admins` is left **off** so you keep a bootstrap escape hatch — flip it on later with:
+
+```sh
+gh api -X PUT repos/Wave-RF/astro-themed-mermaid/branches/main/protection/enforce_admins
+```
+
+## Cutting a release (ongoing — the normal path)
+
+1. Land Conventional-Commit PRs on `main` (squash-merge).
+2. release-please keeps an open **release PR** (`chore(main): release X.Y.Z`) with the version bump + `CHANGELOG.md`. Inspect it any time with **`/release`** or `gh pr list --label "autorelease: pending"`.
+3. **Merge the release PR.** That tags `vX.Y.Z`, creates the GitHub Release, and the same workflow run publishes to npm with provenance.
+
+Every push to `main` also publishes a `0.0.0-dev.<hash>` to the `dev` tag for bleeding-edge consumers (`pnpm add @wave-rf/astro-themed-mermaid@dev`). It never moves `latest`.
+
+### Prereleases & forcing a version
+
+- A version like `0.4.0-rc.1` publishes under the matching dist-tag (`rc`) and is marked a GitHub pre-release; `^0.3.0` consumers never receive it.
+- To force a specific version (e.g. graduate to `1.0.0`): land a commit whose **body** contains `Release-As: 1.0.0`.
+
+## Verifying a release
+
+```sh
+npm dist-tag ls @wave-rf/astro-themed-mermaid      # latest + dev pointers
+npm view @wave-rf/astro-themed-mermaid@<version>   # provenance shows on the npm page
+gh release view v<version>
+```
+
+## Troubleshooting
+
+- **`publish-release` never ran after merging the release PR** — check the `release-please` job's `releases_created` output; if release-please used `GITHUB_TOKEN` (no PAT) the release may not have been created cleanly. Confirm the tag/Release exist.
+- **OIDC publish failed (`401`/`403`)** — the trusted-publisher config doesn't match: verify org/repo and that the **workflow filename** is exactly `publish-npm.yml`. The job must have `permissions: id-token: write` (it does).
+- **`publish-dev` skipped with "not on npm yet"** — the one-time manual publish (step 2) hasn't happened; do it, then the next `main` push publishes `@dev`.
+- **Release PR sits with no checks / can't merge** — add the `RELEASE_PLEASE_TOKEN` PAT (step 4).

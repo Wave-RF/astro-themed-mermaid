@@ -21,7 +21,7 @@
 
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { readFile, writeFile, readdir } from "node:fs/promises";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, resolve as joinPath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,8 +36,7 @@ const FLOWCHART_HEADER_RE = /^\s*(?:flowchart|graph)\b/;
 // diagram type we touch, and flowcharts specifically (cluster work).
 const SVG_BLOCK_RE =
   /<svg\b[^>]*aria-roledescription="(?:flowchart|sequence|class|state|gantt|pie|er)[^"]*"[\s\S]*?<\/svg>/g;
-const FLOWCHART_SVG_RE =
-  /<svg\b[^>]*aria-roledescription="flowchart[^"]*"[\s\S]*?<\/svg>/g;
+const FLOWCHART_SVG_RE = /<svg\b[^>]*aria-roledescription="flowchart[^"]*"[\s\S]*?<\/svg>/g;
 
 /**
  * @param {object} config
@@ -114,8 +113,10 @@ export function themedMermaid(config = {}) {
       // registered: measurement silently falls back to a narrower font, boxes
       // come out too small, and labels clip on the right at runtime.
       const primaryFamily =
-        (font.family || "").split(",")[0].trim().replace(/^["']|["']$/g, "") ||
-        "sans-serif";
+        (font.family || "")
+          .split(",")[0]
+          .trim()
+          .replace(/^["']|["']$/g, "") || "sans-serif";
       cssParts.push(
         [
           "@font-face{",
@@ -134,7 +135,7 @@ export function themedMermaid(config = {}) {
   // depend on the inlined font being available.
   if (measurementCss) cssParts.push(measurementCss);
   const measurementCssDataUrl = cssParts.length
-    ? "data:text/css;base64," + Buffer.from(cssParts.join("")).toString("base64")
+    ? `data:text/css;base64,${Buffer.from(cssParts.join("")).toString("base64")}`
     : undefined;
 
   const rehypeMermaidOptions = {
@@ -162,7 +163,7 @@ export function themedMermaid(config = {}) {
         if (headerIdx < 0) return;
         if (!FLOWCHART_HEADER_RE.test(lines[headerIdx])) return;
         const indent = lines[headerIdx].match(/^\s*/)[0];
-        const injected = classDefs.map((l) => indent + "    " + l);
+        const injected = classDefs.map((l) => `${indent}    ${l}`);
         lines.splice(headerIdx + 1, 0, ...injected);
         node.value = lines.join("\n");
       });
@@ -216,13 +217,18 @@ export function themedMermaid(config = {}) {
       const rootOpenRe =
         /<g class="root"\s+transform="translate\(([-\d.]+),\s*([-\d.]+)\)[^"]*"[^>]*>/g;
       let rm;
+      // biome-ignore lint/suspicious/noAssignInExpressions: idiomatic global regex.exec() iteration
       while ((rm = rootOpenRe.exec(svg)) !== null) {
-        rootOpens.push({ end: rm.index + rm[0].length, tx: parseFloat(rm[1]), ty: parseFloat(rm[2]) });
+        rootOpens.push({
+          end: rm.index + rm[0].length,
+          tx: parseFloat(rm[1]),
+          ty: parseFloat(rm[2]),
+        });
       }
       const labels = [];
       const labelRe =
         /<g class="cluster-label"\s+transform="translate\(([-\d.]+),\s*([-\d.]+)\)([^"]*)"([\s\S]*?)<\/g>/g;
-      const stripped = svg.replace(labelRe, (match, lx, ly, tail, body, off) => {
+      const stripped = svg.replace(labelRe, (_match, lx, ly, tail, body, off) => {
         let parent = { tx: 0, ty: 0 };
         for (const r of rootOpens) {
           if (r.end <= off) parent = r;
@@ -238,7 +244,7 @@ export function themedMermaid(config = {}) {
       // Anchor before the </g> that's followed by <defs>, <linearGradient>, or </svg>.
       return stripped.replace(
         /(<\/g>)(<defs\b|<linearGradient\b|<\/svg>)/,
-        labels.join("") + "$1$2"
+        `${labels.join("")}$1$2`
       );
     });
   }
@@ -264,12 +270,16 @@ export function themedMermaid(config = {}) {
       patched = patched.replace(
         /<g class="cluster[^"]*"[^>]*>((?:(?!<g class="cluster)[\s\S])*?<g class="cluster-label"[^>]*>[\s\S]*?<\/g>)/g,
         (match, body) => {
-          const rectMatch = body.match(/<rect[^>]+x="([-\d.]+)"[^>]+y="([-\d.]+)"[^>]+width="([\d.]+)"/);
+          const rectMatch = body.match(
+            /<rect[^>]+x="([-\d.]+)"[^>]+y="([-\d.]+)"[^>]+width="([\d.]+)"/
+          );
           if (!rectMatch) return match;
           const rectX = parseFloat(rectMatch[1]);
           const rectY = parseFloat(rectMatch[2]);
           const rectW = parseFloat(rectMatch[3]);
-          const foMatch = body.match(/<g class="cluster-label"[\s\S]*?<foreignObject\s+width="([\d.]+)"/);
+          const foMatch = body.match(
+            /<g class="cluster-label"[\s\S]*?<foreignObject\s+width="([\d.]+)"/
+          );
           if (!foMatch) return match;
           const foW = parseFloat(foMatch[1]);
           const fixed = body.replace(
@@ -481,7 +491,11 @@ export function themedMermaid(config = {}) {
         for (const child of node.children) {
           if (child.type === "text") {
             if (/\w/.test(child.value)) return; // non-whitespace sibling → not ours
-          } else if (child.type === "element" && child.tagName === "code" && hasClass(child, "language-mermaid")) {
+          } else if (
+            child.type === "element" &&
+            child.tagName === "code" &&
+            hasClass(child, "language-mermaid")
+          ) {
             if (code) return; // two code children → not ours
             code = child;
           } else {
@@ -489,7 +503,11 @@ export function themedMermaid(config = {}) {
           }
         }
         if (code) found.push({ parent, index, diagram: textContent(code) });
-      } else if (node.tagName === "code" && hasClass(node, "language-mermaid") && parent.tagName !== "pre") {
+      } else if (
+        node.tagName === "code" &&
+        hasClass(node, "language-mermaid") &&
+        parent.tagName !== "pre"
+      ) {
         found.push({ parent, index, diagram: textContent(node) });
       }
     });
@@ -505,7 +523,8 @@ export function themedMermaid(config = {}) {
     const loadInner =
       delegate ?? (() => import("rehype-mermaid").then((m) => m.default(rehypeMermaidOptions)));
     const cacheable =
-      (rehypeMermaidOptions.strategy ?? "inline-svg") === "inline-svg" && !rehypeMermaidOptions.dark;
+      (rehypeMermaidOptions.strategy ?? "inline-svg") === "inline-svg" &&
+      !rehypeMermaidOptions.dark;
     return function rehypeMermaidCached() {
       let innerPromise; // one rehype-mermaid instance per processor, like the uncached spelling
       const inner = () => (innerPromise ??= Promise.resolve(loadInner()));
@@ -530,7 +549,8 @@ export function themedMermaid(config = {}) {
         await (await inner())(tree, file);
         for (const { parent, index, key } of instances) {
           const rendered = parent.children[index];
-          if (rendered?.type === "element" && rendered.tagName === "svg") writeCacheEntry(key, rendered);
+          if (rendered?.type === "element" && rendered.tagName === "svg")
+            writeCacheEntry(key, rendered);
         }
       };
     };
