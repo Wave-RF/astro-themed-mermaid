@@ -43,6 +43,14 @@ export interface ThemedMermaidConfig {
   /** Mermaid `securityLevel` (default `"strict"`). */
   securityLevel?: string;
   /**
+   * Escape hatch for arbitrary **non-color** Mermaid settings this module
+   * doesn't enumerate (e.g. `gantt`, `er`, `pie`, `htmlLabels`, `maxTextSize`).
+   * Merged **beneath** the module's own config, so the module's
+   * `theme`/`themeVariables`/`fontFamily`/`securityLevel`/`flowchart`/`sequence`
+   * always win — color settings can't be overridden here.
+   */
+  mermaidConfig?: Record<string, unknown>;
+  /**
    * Directory for the per-diagram render cache used by `rehypeMermaid`
    * (relative paths resolve against the working directory), or `false` to
    * disable caching. Defaults to `node_modules/.cache/astro-themed-mermaid`.
