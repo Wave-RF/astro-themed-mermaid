@@ -63,6 +63,11 @@ const FLOWCHART_SVG_RE = /<svg\b[^>]*aria-roledescription="flowchart[^"]*"[\s\S]
  * @param {object} [config.flowchart] - Mermaid flowchart config (non-color).
  * @param {object} [config.sequence] - Mermaid sequence config (non-color).
  * @param {string} [config.securityLevel] - Mermaid securityLevel (default strict).
+ * @param {object} [config.mermaidConfig] - Escape hatch for arbitrary NON-COLOR
+ *   Mermaid settings this module doesn't enumerate (e.g. `gantt`, `er`, `pie`,
+ *   `htmlLabels`, `maxTextSize`). Merged BENEATH the module's own config, so the
+ *   color-agnostic invariant holds: theme/themeVariables/fontFamily/
+ *   securityLevel/flowchart/sequence always win over a same-named key here.
  */
 export function themedMermaid(config = {}) {
   const {
@@ -74,6 +79,7 @@ export function themedMermaid(config = {}) {
     flowchart = {},
     sequence = {},
     securityLevel = "strict",
+    mermaidConfig = {},
     cache = join("node_modules", ".cache", "astro-themed-mermaid"),
   } = config;
 
@@ -142,6 +148,9 @@ export function themedMermaid(config = {}) {
     strategy: "inline-svg",
     ...(measurementCssDataUrl ? { css: measurementCssDataUrl } : {}),
     mermaidConfig: {
+      // Caller's non-color escape-hatch settings sit BENEATH the module's own,
+      // so the color-agnostic invariant holds — the keys below always win.
+      ...mermaidConfig,
       // `fontFamily` must sit at the top level — mermaid-isomorphic hard-codes
       // arial here if absent and ignores the same key in themeVariables.
       fontFamily,

@@ -88,6 +88,25 @@ test("rehypeMermaidOptions carries fontFamily at top level AND in themeVariables
   assert.equal(o.mermaidConfig.theme, "base");
 });
 
+test("mermaidConfig escape-hatch: a non-color passthrough key flows through", () => {
+  // Callers can pass arbitrary NON-COLOR Mermaid settings the module doesn't
+  // enumerate (gantt, er, pie, htmlLabels, …) without us growing an option each.
+  const { rehypeMermaidOptions: o } = themedMermaid({
+    mermaidConfig: { gantt: { useWidth: 1200 } },
+  });
+  assert.deepEqual(o.mermaidConfig.gantt, { useWidth: 1200 });
+});
+
+test("mermaidConfig escape-hatch: the module's own settings win over caller overrides", () => {
+  // Color-agnostic invariant: the escape hatch is merged BENEATH the module's
+  // config, so a caller can't override theme/securityLevel/etc through it.
+  const { rehypeMermaidOptions: o } = themedMermaid({
+    mermaidConfig: { theme: "dark", securityLevel: "loose" },
+  });
+  assert.equal(o.mermaidConfig.theme, "base", "module's theme wins, not 'dark'");
+  assert.equal(o.mermaidConfig.securityLevel, "strict", "module's securityLevel wins, not 'loose'");
+});
+
 test("remarkInjectClassdefs injects classDefs after a flowchart header", () => {
   const transform = themedMermaid({
     classDefs: ["classDef wh fill:#000", "classDef fail fill:#f00"],

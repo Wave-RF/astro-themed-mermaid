@@ -144,13 +144,20 @@ The plugin rewrites SVG *geometry* and swaps in your CSS variables; the matching
 | `colorReplacements` | `[from,to][]` | baked color → runtime CSS var; the **only** place colors enter |
 | `flowchart`, `sequence` | object | non-color Mermaid config |
 | `securityLevel` | string | Mermaid securityLevel (default `"strict"`) |
+| `mermaidConfig` | object | escape hatch for other non-color Mermaid settings; merged **beneath** the module's own config (which wins) |
 
-The factory returns three things to wire up:
+> **`mermaidConfig`** is for Mermaid settings this plugin doesn't surface
+> directly (e.g. `gantt`, `er`, `pie`, `htmlLabels`, `maxTextSize`). It's merged
+> *beneath* the module's own config, so it can't override the
+> theme/color/security settings — the color-agnostic invariant holds.
+
+The factory returns four things to wire up:
 
 | return value | wire into |
 |---|---|
 | `remarkInjectClassdefs` | `markdown.remarkPlugins` |
-| `rehypeMermaidOptions` | `markdown.rehypePlugins: [[rehypeMermaid, …]]` |
+| `rehypeMermaid` | `markdown.rehypePlugins` (recommended — the cached drop-in) |
+| `rehypeMermaidOptions` | `markdown.rehypePlugins: [[rehypeMermaid, …]]` (uncached; wire `rehype-mermaid` yourself) |
 | `integration` | `integrations` |
 
 ## Label clipping
