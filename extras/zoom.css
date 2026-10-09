@@ -1,0 +1,166 @@
+/* astro-themed-mermaid — lightbox stylesheet for `diagramZoom`
+ * (`@wave-rf/astro-themed-mermaid/zoom.css`; injected automatically unless you
+ * pass `css: false`).
+ *
+ * COLOR-AGNOSTIC like styles.css: every color is a `var(--mermaid-*, fallback)`.
+ * The lightbox reuses the diagram variables you already define, and adds a few
+ * optional ones of its own (each falls back to a sensible default):
+ *
+ *   --mermaid-zoom-backdrop  dimmed page behind the lightbox  (default: Canvas @ 78%)
+ *   --mermaid-zoom-surface   toolbar button / toast background (default: --mermaid-surface)
+ *   --mermaid-zoom-ink       toolbar icon / toast text         (default: --mermaid-ink)
+ *   --mermaid-zoom-border    toolbar button / toast border     (default: --mermaid-border)
+ *   --mermaid-zoom-accent    pressed-toggle + focus ring       (default: --mermaid-cluster-border)
+ *   --mermaid-zoom-radius    stage + focus-ring corner radius  (default: 12px)
+ *   --mermaid-zoom-z         stacking order                    (default: 100)
+ *   --mermaid-surface        the stage ("card") background
+ */
+
+.mermaid-zoomable {
+  cursor: zoom-in;
+}
+.mermaid-zoomable:focus-visible {
+  outline: 2px solid var(--mermaid-zoom-accent, var(--mermaid-cluster-border, currentColor));
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.mermaid-zoom {
+  position: fixed;
+  inset: 0;
+  z-index: var(--mermaid-zoom-z, 100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(0.5rem, 3vw, 2.5rem);
+  background: var(--mermaid-zoom-backdrop, color-mix(in oklab, Canvas 78%, transparent));
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.mermaid-zoom.is-open {
+  opacity: 1;
+}
+.mermaid-zoom[hidden] {
+  display: none;
+}
+.mermaid-zoom__stage {
+  max-width: 94vw;
+  max-height: 90vh;
+  overflow: auto;
+  display: grid;
+  /* `safe`: plain centering makes the overflow START side unreachable when a
+     natural-size diagram exceeds the stage (phones could never scroll to the
+     diagram's left/top edge); safe centering falls back to start. */
+  place-items: safe center;
+  border-radius: var(--mermaid-zoom-radius, 12px);
+  /* The cloned SVG's themed fills use --mermaid-* vars resolved on :root, so
+     the diagram keeps its colors inside the overlay. A surface backing reads as
+     a "card" lifted off the dimmed page. */
+  background: var(--mermaid-surface, #14171c);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+  padding: clamp(1rem, 2.5vw, 2rem);
+}
+.mermaid-zoom__stage > svg {
+  display: block;
+}
+/* 1:1 pan edge fades, driven by the data-more / data-more-start attributes the
+   script stamps while the diagram is wider than the stage. */
+.mermaid-zoom__stage[data-more] {
+  mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+}
+.mermaid-zoom__stage[data-more-start] {
+  mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+}
+.mermaid-zoom__stage[data-more][data-more-start] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 2.5rem,
+    #000 calc(100% - 2.5rem),
+    transparent
+  );
+}
+/* Transparent-export preview: swap the surface backing for a checkerboard so
+   the user sees exactly what the exported PNG will look like. Affects only the
+   on-screen preview; the diagram's own colors are unchanged. */
+.mermaid-zoom__stage.is-transparent {
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #c4c8ce 25%, transparent 25%),
+    linear-gradient(-45deg, #c4c8ce 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #c4c8ce 75%),
+    linear-gradient(-45deg, transparent 75%, #c4c8ce 75%);
+  background-size: 22px 22px;
+  background-position: 0 0, 0 11px, 11px -11px, -11px 0;
+}
+.mermaid-zoom__tools {
+  position: fixed;
+  top: clamp(0.5rem, 2vw, 1.25rem);
+  right: clamp(0.5rem, 2vw, 1.25rem);
+  z-index: 1;
+  display: flex;
+  gap: 0.5rem;
+}
+.mermaid-zoom__tools button {
+  width: 2.5rem;
+  height: 2.5rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid var(--mermaid-zoom-border, var(--mermaid-border, rgba(255, 255, 255, 0.14)));
+  background: var(--mermaid-zoom-surface, var(--mermaid-surface, #14171c));
+  color: var(--mermaid-zoom-ink, var(--mermaid-ink, #f1f3f7));
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.12s ease, border-color 0.12s ease;
+}
+/* `display: grid` above outranks the UA `[hidden]` rule — restore hiding
+   explicitly (higher specificity) so hidden controls actually disappear. */
+.mermaid-zoom__tools button[hidden] {
+  display: none;
+}
+.mermaid-zoom__one {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.75rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.mermaid-zoom__one[aria-pressed="true"],
+.mermaid-zoom__bg[aria-pressed="true"] {
+  border-color: var(--mermaid-zoom-accent, var(--mermaid-cluster-border, currentColor));
+}
+.mermaid-zoom__tools button:hover {
+  transform: scale(1.05);
+}
+.mermaid-zoom__tools button:focus-visible {
+  outline: 2px solid var(--mermaid-zoom-accent, var(--mermaid-cluster-border, currentColor));
+  outline-offset: 2px;
+}
+/* Brief confirmation under the toolbar (Copied / Downloaded / unavailable). */
+.mermaid-zoom__toast {
+  position: fixed;
+  top: calc(clamp(0.5rem, 2vw, 1.25rem) + 3rem);
+  right: clamp(0.5rem, 2vw, 1.25rem);
+  z-index: 1;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid var(--mermaid-zoom-border, var(--mermaid-border, rgba(255, 255, 255, 0.14)));
+  background: var(--mermaid-zoom-surface, var(--mermaid-surface, #14171c));
+  color: var(--mermaid-zoom-ink, var(--mermaid-ink, #f1f3f7));
+  font-size: 0.8rem;
+  font-weight: 500;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+.mermaid-zoom__toast[hidden] {
+  display: none;
+}
+.mermaid-zoom__toast.is-error {
+  border-color: #e5484d;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mermaid-zoom,
+  .mermaid-zoom__tools button {
+    transition: none;
+  }
+}
