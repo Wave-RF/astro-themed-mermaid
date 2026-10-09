@@ -77,6 +77,202 @@ flowchart TD
 
 A complete, copy-pasteable config + stylesheet lives in [`example/`](./example).
 
+## Diagram extras: PNG export, zoom lightbox, dev tools
+
+Four optional features that sit on top of the core plugin. Each is its own
+subpath import, so a site that doesn't use them pays nothing. They share the
+package's color-agnostic design: they read your `--mermaid-*` CSS variables and
+define no palette of their own (beyond neutral fallbacks and a checkerboard for the transparency preview).
+
+| feature | import | needs Playwright |
+|---|---|---|
+| PNG export | `@wave-rf/astro-themed-mermaid/png` | yes (build time) |
+| Zoom lightbox | `@wave-rf/astro-themed-mermaid/zoom` (+ `zoom.css`) | no |
+| `audit` / `screenshot` tools | `astro-themed-mermaid` bin | yes |
+| Shared path/slug helpers | `@wave-rf/astro-themed-mermaid/shared` | no |
+
+`playwright` is an **optional peer dependency**: install it only if you use PNG
+export or the tools (`pnpm add -D playwright && pnpm exec playwright install chromium`;
+it must be resolvable from your project root, i.e. a direct dependency. If it
+can't be found, the build only warns: `diagram PNG export skipped`).
+The core plugin never imports it.
+
+### The diagram marker
+
+`mermaid.rehypeMermaid` stamps every `<svg>` it renders — fresh or read from the
+render cache — with a `data-themed-mermaid` attribute. That attribute, not
+`aria-roledescription`, is what the PNG export, the lightbox and the CLI tools
+select by default (`DEFAULT_SELECTOR` = `svg[data-themed-mermaid]`, exported from
+`/shared`), so an unrelated `<svg aria-roledescription="image">` (a logo, an
+icon) is never treated as a diagram. The marker is added after the cache read, so
+existing cache entries keep working. If you use the uncached spelling
+(`[[rehypeMermaid, mermaid.rehypeMermaidOptions]]`), `mermaid.integration` adds
+the marker to Mermaid's own `<svg id="mermaid-…" aria-roledescription=…>` in the
+built HTML instead.
+
+### PNG export (`/png`)
+
+After the build, drives Chromium over the built pages and writes a PNG of every
+diagram, per theme, solid and transparent (for slide decks), to
+`dist/diagrams/<slug>/<index>-<theme>[-transparent].png`. `<slug>` is the page
+path (`/guide/intro/` -> `guide/intro`, the home page is `index`) and `<index>`
+is the diagram's position among `selector` matches. Each diagram is rendered
+alone on a padded card, so no site chrome ends up behind a transparent export.
+
+```js
+// astro.config.mjs
+import { defineConfig } from "astro/config";
+import { themedMermaid } from "@wave-rf/astro-themed-mermaid";
+import { diagramPng } from "@wave-rf/astro-themed-mermaid/png";
+
+const mermaid = themedMermaid({ /* … */ });
+
+export default defineConfig({
+  markdown: { /* remark/rehype wiring as in Usage */ },
+  integrations: [
+    mermaid.integration,
+    diagramPng(), // list it last: it reads the finished HTML
+  ],
+});
+```
+
+| option | default | purpose |
+|---|---|---|
+| `selector` | `svg[data-themed-mermaid]` | which SVGs are diagrams. **Must match `diagramZoom`'s** |
+| `themes` | `["light", "dark"]` | one PNG set per theme name |
+| `themeAttr` | `"data-theme"` | attribute set on `<html>` to select a theme before first paint |
+| `dataAttributes` | `true` | write `data-png-<theme>[-transparent]` URLs onto each diagram (see above) |
+| `themeStorageKey` | `null` | localStorage key your site reads its theme from (Starlight: `"starlight-theme"`) |
+| `surfaceVar` | `"--mermaid-surface"` | CSS variable for the solid card background |
+| `scale` | `2` | device scale factor (retina) |
+| `pad` | `28` | card padding, CSS px |
+| `maxDim` | `2400` | cap on a diagram's long edge, CSS px |
+| `variants` | solid + `-transparent` | `{ suffix, transparent }[]` rendered per diagram |
+| `outDir` | `"diagrams"` | directory under the build output (and URL path) |
+| `cacheDir` | `"node_modules/.cache/astro-themed-mermaid-png"` | per-page render cache (project-relative), or `false` |
+| `skipEnv` | `"ASTRO_THEMED_MERMAID_SKIP_PNG"` | env var that skips the export when set to `1` |
+
+Notes: a browser failure only logs a warning (the site is already built);
+Playwright is resolved from **your** project, not this package; with an Astro
+`base`, assets and slugs are handled for you. The export sets `themeAttr` on
+`<html>` before first paint. If your site re-reads its theme from localStorage
+at load (Starlight does), also set `themeStorageKey` (`"starlight-theme"`), or
+every theme renders identically. The CLI's `--theme-storage-key` is the same.
+
+#### PNG URLs as data attributes
+
+Each diagram also gets the URLs of its PNGs as attributes in the built HTML:
+`data-png-light`, `data-png-dark`, `data-png-light-transparent`,
+`data-png-dark-transparent` (one per theme and variant you configured), already
+including Astro's `base` and `outDir`. A site with its own lightbox can read
+`svg.dataset.pngDark` and wire up Copy/Download without this package's zoom.
+Turn it off with `dataAttributes: false`.
+
+These are written by the PNG integration *after* it has produced the files, not
+predicted by the rehype pass. The rehype pass cannot know the page's final route
+(content collections, MDX layouts and `getStaticPaths` all decide it later), the
+diagram's index among the page's diagrams, or whether the export will run and
+succeed. The integration knows all three, and writes an attribute only for a PNG
+that exists on disk at that moment, so an attribute never points at a missing
+file (a failed theme or variant simply has no attribute).
+
+### Zoom lightbox (`/zoom`)
+
+Click (or Enter on) any diagram to open it in a lightbox that always fits the
+viewport; oversized diagrams get a 1:1 pan toggle with edge fades. When the
+build-time PNGs exist, Copy / Download / transparent-background buttons appear
+(they stay hidden under `astro dev`, which runs no build hook). It is an Astro
+integration: it injects the script and stylesheet into every page, so there is
+no component to mount.
+
+```js
+import { diagramZoom } from "@wave-rf/astro-themed-mermaid/zoom";
+
+export default defineConfig({
+  integrations: [mermaid.integration, diagramZoom(), diagramPng()],
+});
+```
+
+| option | default | purpose |
+|---|---|---|
+| `selector` | `svg[data-themed-mermaid]` | which SVGs are diagrams. **Must match `diagramPng`'s** |
+| `png` | `true` | show Copy/Download/background buttons when a PNG exists |
+| `outDir` | `"diagrams"` | where `diagramPng` wrote PNGs (match its `outDir`) |
+| `themes` | `["light", "dark"]` | theme names PNGs exist for |
+| `themeAttr` | `"data-theme"` | attribute carrying the site theme; if unset on the page, `prefers-color-scheme` decides |
+| `themeTarget` | `"html"` | selector of the element carrying that attribute |
+| `filenamePrefix` | `""` | prefix for downloaded files (`<prefix>-<slug>-diagram-<n>.png`) |
+| `css` | `true` | inject the bundled `zoom.css`; `false` to style it yourself |
+| `labels` | English | any subset of the UI strings (see `DEFAULT_LABELS`) |
+
+> **Why not `starlight-image-zoom` or similar?** Those zoom `<img>` / `<picture>`
+> elements. Mermaid diagrams are inline `<svg>`, so they are skipped. That is why
+> this package ships its own lightbox. It is opt-in: leave `diagramZoom()` out and
+> use the `data-png-*` attributes above with whatever lightbox you prefer.
+
+Styling is `@wave-rf/astro-themed-mermaid/zoom.css`, built on the variables you
+already define (`--mermaid-surface`, `--mermaid-ink`, `--mermaid-border`,
+`--mermaid-cluster-border`) plus optional `--mermaid-zoom-backdrop`,
+`--mermaid-zoom-surface`, `--mermaid-zoom-ink`, `--mermaid-zoom-border`,
+`--mermaid-zoom-accent`, `--mermaid-zoom-radius`, `--mermaid-zoom-z`.
+
+> **Index agreement.** The lightbox asks for `…/<index>-<theme>.png`, where
+> `<index>` is the diagram's DOM position among `selector` matches. The PNG
+> export numbers them the same way. Both default to one shared constant
+> (`DEFAULT_SELECTOR`, exported from `/shared`); if you narrow the selector for
+> one (e.g. Starlight's `.sl-markdown-content svg[data-themed-mermaid]`), pass
+> the **same** value to the other, or Copy/Download will fetch the wrong diagram.
+
+Plain (non-Starlight) Astro example. The defaults already fit a site that sets
+`data-theme` on `<html>`; add `themeStorageKey` if your theme script reads a
+localStorage key (it can also be omitted, the export then follows the emulated OS
+colour scheme):
+
+```js
+integrations: [
+  mermaid.integration,
+  diagramZoom(),
+  diagramPng({ themeStorageKey: "wh-theme" }),
+];
+```
+
+If your site toggles a class instead of an attribute, or keeps the theme on
+another element, set `themeAttr` / `themeTarget` (zoom) and `themeAttr` (png) to
+match. The lightbox works with Astro's `<ClientRouter/>`: it is rebuilt after a
+body swap.
+
+Starlight example:
+
+```js
+const selector = ".sl-markdown-content svg[data-themed-mermaid]"; // optional: restrict to the content area
+integrations: [
+  mermaid.integration,
+  diagramZoom({ selector }),
+  diagramPng({ selector, themeStorageKey: "starlight-theme" }),
+];
+```
+
+### Dev tools (`astro-themed-mermaid audit | screenshot`)
+
+Both load the **built** site (`astro build` output) in headless Chromium with its
+real stylesheet applied, so what you measure is what ships. Run from the project
+root after a build:
+
+```sh
+pnpm exec astro-themed-mermaid audit      # measurements -> screenshots/audit.json
+pnpm exec astro-themed-mermaid screenshot # screenshots/<page>-<theme>-<n>.png
+```
+
+- `audit` reports edge-label centering vs. the nearest edge, cylinder label
+  offset, cluster-title pill straddle, and per-class node fill/label WCAG
+  contrast. Numbers, not opinions.
+- `screenshot` writes one PNG per diagram per theme, for visual regression.
+
+Options (both): `--dist` (default `dist`), `--out` (`screenshots`), `--pages a,b`
+(default: every built page with a diagram), `--selector`, `--themes`,
+`--theme-attr`, `--theme-storage-key`, `--base`; `screenshot` also takes
+`--scale` (default `2`). Run with no arguments for help.
+
 ## Render cache
 
 `mermaid.rehypeMermaid` wraps `rehype-mermaid` with a per-diagram render cache,

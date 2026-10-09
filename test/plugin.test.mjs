@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -343,4 +343,67 @@ test("render cache: non-mermaid documents never render", async () => {
   await plugin(tree, {});
   assert.equal(calls.count, 0, "no mermaid blocks → no render call at all");
   assert.equal(tree.children[0].tagName, "pre", "tree untouched");
+});
+
+test("marker: fresh render and cached render both carry data-themed-mermaid; unrelated svg does not", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "atm-marker-"));
+  const { _internals } = themedMermaid({ cache: dir });
+  const calls = { count: 0 };
+  const plugin = _internals.createCachedRehypeMermaid({ delegate: fakeDelegate(calls) })();
+
+  const fresh = mermaidTree("graph TD;\n  A-->B");
+  await plugin(fresh, {});
+  assert.equal(calls.count, 1);
+  assert.equal(fresh.children[0].properties.dataThemedMermaid, "", "fresh render stamped");
+
+  const hit = mermaidTree("graph TD;\n  A-->B");
+  await plugin(hit, {});
+  assert.equal(calls.count, 1, "second render came from the cache");
+  assert.equal(hit.children[0].properties.dataThemedMermaid, "", "cached render stamped");
+
+  // The marker is NOT persisted in the cache entry (old caches keep working).
+  const files = (await readdir(dir)).filter((f) => f.endsWith(".json"));
+  assert.equal(files.length, 1);
+  assert.doesNotMatch(await readFile(join(dir, files[0]), "utf8"), /dataThemedMermaid/);
+
+  // An unrelated <svg aria-roledescription> in the tree is never stamped.
+  const other = {
+    type: "element",
+    tagName: "svg",
+    properties: { ariaRoleDescription: ["image"] },
+    children: [],
+  };
+  const tree = mermaidTree("graph TD;\n  A-->B");
+  tree.children.push(other);
+  await plugin(tree, {});
+  assert.equal(tree.children[0].properties.dataThemedMermaid, "");
+  assert.equal(other.properties.dataThemedMermaid, undefined);
+});
+
+test("marker: cache:false (no cache dir) path also stamps", async () => {
+  const { _internals } = themedMermaid({ cache: false });
+  const plugin = _internals.createCachedRehypeMermaid({ delegate: fakeDelegate({ count: 0 }) })();
+  const tree = mermaidTree("graph TD;\n  A-->B");
+  await plugin(tree, {});
+  assert.equal(tree.children[0].properties.dataThemedMermaid, "");
+});
+
+test("marker: build hook stamps unmarked Mermaid svgs, leaves others and is idempotent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "atm-stamp-"));
+  const page =
+    '<svg id="mermaid-9" aria-roledescription="flowchart-v2"><g/></svg>' +
+    '<svg id="logo" aria-roledescription="image"><g/></svg>';
+  const file = join(dir, "index.html");
+  await writeFile(file, page);
+  const m = themedMermaid({ cache: false });
+  const logger = { info() {} };
+  await m.integration.hooks["astro:build:done"]({ dir: pathToFileURL(`${dir}/`), logger });
+  const once = await readFile(file, "utf8");
+  assert.match(
+    once,
+    /<svg id="mermaid-9" aria-roledescription="flowchart-v2" data-themed-mermaid>/
+  );
+  assert.match(once, /<svg id="logo" aria-roledescription="image"><g\/>/);
+  await m.integration.hooks["astro:build:done"]({ dir: pathToFileURL(`${dir}/`), logger });
+  assert.equal(await readFile(file, "utf8"), once);
 });
