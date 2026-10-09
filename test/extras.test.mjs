@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { diagramHash, diagramPng, PNG_DEFAULTS, resolvePngOptions } from "../extras/png.mjs";
+import {
+  diagramHash,
+  diagramPng,
+  extractDiagramSvgs,
+  PNG_DEFAULTS,
+  resolvePngOptions,
+  stylesFingerprint,
+} from "../extras/png.mjs";
 import {
   DEFAULT_SELECTOR,
   diagramSlug,
@@ -87,7 +94,7 @@ test("PNG option defaults + validation", () => {
 
 test("PNG cache hash tracks diagrams, css bundle, theme and settings only", () => {
   const html = (prose, css = "/_astro/a.css") =>
-    `<link href="${css}"><p>${prose}</p><svg aria-roledescription="flowchart-v2"><g/></svg>`;
+    `<link rel="stylesheet" href="${css}"><p>${prose}</p><svg aria-roledescription="flowchart-v2"><g/></svg>`;
   const h = (page, theme = "dark", cfg) => diagramHash(page, theme, cfg);
   assert.equal(h(html("one")), h(html("two")), "prose edits must not bust the cache");
   assert.notEqual(h(html("x")), h(html("x"), "light"));
@@ -97,6 +104,39 @@ test("PNG cache hash tracks diagrams, css bundle, theme and settings only", () =
     h(html("x")),
     diagramHash(html("x").replace("<g/>", "<g><g/></g>"), "dark", PNG_DEFAULTS)
   );
+});
+
+test("PNG cache hash sees inline styles, public css, and nested svgs", () => {
+  const page = (style, svg = "<g/>") =>
+    `<head><style>${style}</style></head><svg aria-roledescription="flowchart-v2">${svg}</svg>`;
+  assert.notEqual(
+    diagramHash(page(":root{--mermaid-surface:#111}"), "dark"),
+    diagramHash(page(":root{--mermaid-surface:#222}"), "dark"),
+    "inlined css change must bust the cache"
+  );
+  const linked = '<link rel="stylesheet" href="/theme.css"><svg aria-roledescription="x"></svg>';
+  assert.notEqual(
+    diagramHash(linked, "dark", undefined, () => "a{color:red}"),
+    diagramHash(linked, "dark", undefined, () => "a{color:blue}"),
+    "linked (public/) css content must bust the cache"
+  );
+  assert.equal(
+    stylesFingerprint('<link rel="stylesheet" href="https://x/y.css">'),
+    stylesFingerprint("")
+  );
+  const nested = '<svg aria-roledescription="a"><svg><g/></svg><text>tail</text></svg><p/>';
+  assert.deepEqual(extractDiagramSvgs(nested), [nested.slice(0, nested.length - 4)]);
+  assert.notEqual(
+    diagramHash(page("", "<svg/><text>1</text>"), "dark"),
+    diagramHash(page("", "<svg/><text>2</text>"), "dark"),
+    "content after an inner </svg> is part of the diagram"
+  );
+});
+
+test("PNG option validation rejects zero scale/maxDim but allows zero pad", () => {
+  assert.throws(() => resolvePngOptions({ scale: 0 }), /scale/);
+  assert.throws(() => resolvePngOptions({ maxDim: 0 }), /maxDim/);
+  assert.equal(resolvePngOptions({ pad: 0 }).pad, 0);
 });
 
 test("lightbox and PNG integration agree on the diagram selector", async () => {
@@ -201,7 +241,9 @@ test("audit: contrast math", () => {
   assert.equal(rgbToHex("not-a-color"), "not-a-color");
   assert.equal(+contrast("#000000", "#ffffff").toFixed(1), 21);
   assert.equal(relLum("#fff") > 0.99, true);
-  assert.equal(relLum("garbage"), 0, "unparseable color degrades to black, never NaN");
+  assert.equal(relLum("garbage"), null, "unparseable color is unknown, never a made-up number");
+  assert.equal(contrast("oklch(0.5 0.1 200)", "#fff"), null);
+  assert.equal(wcagLevel(null), "unknown");
   assert.equal(wcagLevel(21), "AAA");
   assert.equal(wcagLevel(4.6), "AA");
   assert.equal(wcagLevel(3.1), "AA-large");

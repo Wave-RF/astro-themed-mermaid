@@ -5,6 +5,7 @@ export const DEFAULT_THEMES: string[];
 export const DEFAULT_THEME_ATTR: string;
 export const DEFAULT_VARIANTS: Array<{ suffix: string; transparent: boolean }>;
 
+export function trimSlashes(s: unknown): string;
 export function normalizeBase(base?: string): string;
 export function diagramSlug(pathname: string, base?: string): string;
 export function pngFileName(index: number, theme: string, transparent?: boolean): string;

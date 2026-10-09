@@ -11,18 +11,19 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { discoverPages, withThemedPages } from "./cli.mjs";
 
-/** Relative luminance of a hex (#rgb/#rgba/#rrggbb/#rrggbbaa) or rgb()/rgba() color. Pure. */
+/**
+ * Relative luminance of a hex (#rgb/#rgba/#rrggbb/#rrggbbaa) or rgb()/rgba()
+ * color, or `null` when the color can't be parsed (oklch(), color(), …) so the
+ * audit never reports a made-up ratio. Pure.
+ */
 export function relLum(color) {
-  // Defensive: parse 3/4/6/8-digit hex and rgb()/rgba() (comma or space
-  // separated), defaulting to black, so a stray value can never crash on a null
-  // match or silently poison a contrast number with NaN.
-  let r = 0;
-  let g = 0;
-  let b = 0;
+  let r;
+  let g;
+  let b;
   const hex = color.match(/^#?([0-9a-f]{3,8})$/i);
-  if (hex) {
+  if (hex && [3, 4, 6, 8].includes(hex[1].length)) {
     const h = hex[1];
-    if (h.length === 3 || h.length === 4) {
+    if (h.length <= 4) {
       r = Number.parseInt(h[0] + h[0], 16);
       g = Number.parseInt(h[1] + h[1], 16);
       b = Number.parseInt(h[2] + h[2], 16);
@@ -32,8 +33,9 @@ export function relLum(color) {
       b = Number.parseInt(h.slice(4, 6), 16);
     }
   } else {
-    const rgb = color.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
-    if (rgb) [r, g, b] = [rgb[1], rgb[2], rgb[3]].map(Number);
+    const rgb = color.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i);
+    if (!rgb) return null;
+    [r, g, b] = [rgb[1], rgb[2], rgb[3]].map(Number);
   }
   const lin = [r, g, b].map((v) => {
     const c = v / 255;
@@ -42,10 +44,11 @@ export function relLum(color) {
   return 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
 }
 
-/** WCAG contrast ratio between two colors. Pure. */
+/** WCAG contrast ratio between two colors, or `null` if either is unparseable. Pure. */
 export function contrast(c1, c2) {
   const L1 = relLum(c1);
   const L2 = relLum(c2);
+  if (L1 === null || L2 === null) return null;
   const [hi, lo] = L1 > L2 ? [L1, L2] : [L2, L1];
   return (hi + 0.05) / (lo + 0.05);
 }
@@ -60,6 +63,7 @@ export function rgbToHex(rgb) {
 
 /** WCAG level for a ratio. Pure. */
 export function wcagLevel(ratio) {
+  if (ratio === null) return "unknown";
   return ratio >= 7 ? "AAA" : ratio >= 4.5 ? "AA" : ratio >= 3 ? "AA-large" : "FAIL";
 }
 
@@ -194,7 +198,8 @@ export async function run(opts) {
           for (const c of d.contrastChecks) {
             c.fill_hex = rgbToHex(c.fill);
             c.text_hex = rgbToHex(c.text);
-            c.ratio = +contrast(c.fill_hex, c.text_hex).toFixed(2);
+            const ratio = contrast(c.fill_hex, c.text_hex);
+            c.ratio = ratio === null ? null : +ratio.toFixed(2);
             c.wcag = wcagLevel(c.ratio);
           }
           audit.push({ page: p.slug, theme, diagram: i + 1, ...d });

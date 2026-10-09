@@ -82,7 +82,7 @@ A complete, copy-pasteable config + stylesheet lives in [`example/`](./example).
 Four optional features that sit on top of the core plugin. Each is its own
 subpath import, so a site that doesn't use them pays nothing. They share the
 package's color-agnostic design: they read your `--mermaid-*` CSS variables and
-define no palette of their own.
+define no palette of their own (beyond neutral fallbacks and a checkerboard for the transparency preview).
 
 | feature | import | needs Playwright |
 |---|---|---|
@@ -93,7 +93,8 @@ define no palette of their own.
 
 `playwright` is an **optional peer dependency**: install it only if you use PNG
 export or the tools (`pnpm add -D playwright && pnpm exec playwright install chromium`;
-Astro/Starlight sites that render diagrams already have it via `rehype-mermaid`).
+it must be resolvable from your project root, i.e. a direct dependency. If it
+can't be found, the build only warns: `diagram PNG export skipped`).
 The core plugin never imports it.
 
 ### PNG export (`/png`)
@@ -107,12 +108,14 @@ alone on a padded card, so no site chrome ends up behind a transparent export.
 
 ```js
 // astro.config.mjs
+import { defineConfig } from "astro/config";
 import { themedMermaid } from "@wave-rf/astro-themed-mermaid";
 import { diagramPng } from "@wave-rf/astro-themed-mermaid/png";
 
 const mermaid = themedMermaid({ /* … */ });
 
 export default defineConfig({
+  markdown: { /* remark/rehype wiring as in Usage */ },
   integrations: [
     mermaid.integration,
     diagramPng(), // list it last: it reads the finished HTML
@@ -137,10 +140,10 @@ export default defineConfig({
 
 Notes: a browser failure only logs a warning (the site is already built);
 Playwright is resolved from **your** project, not this package; with an Astro
-`base`, assets and slugs are handled for you. Without a theme attribute your
-theme CSS may not switch under a headless browser: on Starlight set
-`themeStorageKey: "starlight-theme"`, otherwise Starlight's own script
-overrides the attribute.
+`base`, assets and slugs are handled for you. The export sets `themeAttr` on
+`<html>` before first paint. If your site re-reads its theme from localStorage
+at load (Starlight does), also set `themeStorageKey` (`"starlight-theme"`), or
+every theme renders identically. The CLI's `--theme-storage-key` is the same.
 
 ### Zoom lightbox (`/zoom`)
 

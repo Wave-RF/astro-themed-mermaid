@@ -32,7 +32,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { findHtml, loadChromium, routeDistAssets, themeInitScript } from "./browser.mjs";
 import {
@@ -97,22 +97,69 @@ export function resolvePngOptions(options = {}) {
     throw new TypeError("diagramPng: `selector` must be a non-empty string");
   }
   for (const k of ["scale", "pad", "maxDim"]) {
-    if (!(typeof cfg[k] === "number" && cfg[k] >= 0 && Number.isFinite(cfg[k]))) {
-      throw new TypeError(`diagramPng: \`${k}\` must be a non-negative number`);
+    const min = k === "pad" ? 0 : Number.MIN_VALUE;
+    if (!(typeof cfg[k] === "number" && cfg[k] >= min && Number.isFinite(cfg[k]))) {
+      throw new TypeError(
+        `diagramPng: \`${k}\` must be ${k === "pad" ? "a non-negative" : "a positive"} number`
+      );
     }
   }
   return cfg;
 }
 
 /**
- * Hash of only what changes the rendered PNG: the diagram markup, the CSS bundle
- * identity (Astro's `/_astro/*.css` hash encodes the stylesheet's content), the
- * theme, the render settings, and RENDER_VERSION. Hashing the whole page would
- * bust the cache on unrelated prose edits. Pure.
+ * Every Mermaid diagram `<svg>` in `html`, whole (nesting-aware: a diagram that
+ * contains inner `<svg>` icons ends at its own closing tag). Pure.
  */
-export function diagramHash(html, theme, cfg = PNG_DEFAULTS) {
-  const svgs = html.match(/<svg\b[^>]*aria-roledescription[\s\S]*?<\/svg>/g) || [];
-  const css = html.match(/\/_astro\/[^"']+\.css/g) || [];
+export function extractDiagramSvgs(html) {
+  const out = [];
+  const open = /<svg\b[^>]*aria-roledescription/g;
+  const tag = /<(\/?)svg\b/g;
+  let m = open.exec(html);
+  while (m) {
+    tag.lastIndex = m.index;
+    let depth = 0;
+    let end = html.length;
+    for (let t = tag.exec(html); t; t = tag.exec(html)) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) {
+        end = html.indexOf(">", t.index) + 1;
+        break;
+      }
+    }
+    out.push(html.slice(m.index, end));
+    open.lastIndex = Math.max(end, m.index + 1);
+    m = open.exec(html);
+  }
+  return out;
+}
+
+/**
+ * What styles the page: inline `<style>` text plus the contents of every linked
+ * stylesheet, however it is served (hashed `/_astro/*.css`, `public/`, or
+ * inlined). `readLocal(href)` returns a local stylesheet's text or null. Pure
+ * apart from `readLocal`.
+ */
+export function stylesFingerprint(html, readLocal = () => null) {
+  const parts = [];
+  for (const m of html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/g)) parts.push(m[1]);
+  for (const m of html.matchAll(/<link\b[^>]*>/g)) {
+    if (!/rel=["']?stylesheet/i.test(m[0])) continue;
+    const href = m[0].match(/href=["']?([^"'\s>]+)/i)?.[1];
+    if (!href || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(href)) continue;
+    parts.push(`${href}:${readLocal(href.split(/[?#]/)[0]) ?? ""}`);
+  }
+  return createHash("sha1").update(parts.join("\u0000")).digest("hex");
+}
+
+/**
+ * Hash of only what changes the rendered PNG: the diagram markup, the page's
+ * styles (see stylesFingerprint), the theme, the render settings, and
+ * RENDER_VERSION. Hashing the whole page would bust the cache on unrelated prose
+ * edits. Pure.
+ */
+export function diagramHash(html, theme, cfg = PNG_DEFAULTS, readLocal) {
+  const svgs = extractDiagramSvgs(html);
   const settings = JSON.stringify([
     cfg.selector,
     cfg.themeAttr,
@@ -124,7 +171,9 @@ export function diagramHash(html, theme, cfg = PNG_DEFAULTS) {
     cfg.variants,
   ]);
   return createHash("sha1")
-    .update(`${RENDER_VERSION}|${theme}|${settings}|${css.join(",")}|${svgs.join(" ")}`)
+    .update(
+      `${RENDER_VERSION}|${theme}|${settings}|${stylesFingerprint(html, readLocal)}|${svgs.join(" ")}`
+    )
     .digest("hex")
     .slice(0, 16);
 }
@@ -140,9 +189,19 @@ export function diagramPng(options = {}) {
   return {
     name: "astro-themed-mermaid-png",
     hooks: {
-      "astro:config:done": ({ config }) => {
+      "astro:config:done": ({ config, logger }) => {
         root = fileURLToPath(config.root);
         base = config.base ?? "";
+        // build:done hooks run in config order: if we run first we'd rasterize
+        // the not-yet-themed SVG (baked colors, no light/dark split).
+        const names = (config.integrations ?? []).map((i) => i.name);
+        const core = names.indexOf("astro-themed-mermaid");
+        const me = names.indexOf("astro-themed-mermaid-png");
+        if (core !== -1 && me !== -1 && me < core) {
+          logger.warn(
+            "diagramPng() is listed before the themedMermaid integration; list it LAST so it sees the rewritten SVG."
+          );
+        }
       },
       "astro:build:done": async ({ dir, pages, logger }) => {
         if (process.env[cfg.skipEnv] === "1") {
@@ -179,6 +238,18 @@ async function run({ dir, pages, logger, cfg, root, base }) {
   }
   if (diagramPages.length === 0) return;
 
+  const readLocal = (href) => {
+    try {
+      const f = resolve(
+        distDir,
+        `.${href.startsWith("/") ? "" : "/"}${href.startsWith("/") ? href : `/${href}`}`
+      );
+      return readFileSync(f, "utf8");
+    } catch {
+      return null;
+    }
+  };
+
   const cacheDir = cfg.cacheDir === false ? null : join(root, cfg.cacheDir);
   const manifestPath = cacheDir && join(cacheDir, "manifest.json");
   const manifest = cacheDir ? readJson(manifestPath) : {};
@@ -190,7 +261,7 @@ async function run({ dir, pages, logger, cfg, root, base }) {
   const toRender = [];
   for (const page of diagramPages) {
     for (const theme of cfg.themes) {
-      const hash = diagramHash(page.html, theme, cfg);
+      const hash = diagramHash(page.html, theme, cfg, readLocal);
       const entry = manifest[`${page.slug}|${theme}`];
       const cached =
         cacheDir &&
@@ -215,15 +286,22 @@ async function run({ dir, pages, logger, cfg, root, base }) {
   for (const job of toCopy) {
     for (let i = 0; i < job.count; i++) {
       for (const v of cfg.variants) {
-        await place(
-          join(cacheDir, `${job.hash}-${i}-${job.theme}${v.suffix}.png`),
-          outPath(job.slug, i, job.theme, v)
-        );
+        try {
+          await place(
+            join(cacheDir, `${job.hash}-${i}-${job.theme}${v.suffix}.png`),
+            outPath(job.slug, i, job.theme, v)
+          );
+        } catch {
+          // cache entry vanished: fall back to rendering this job instead
+          toRender.push({ ...job });
+          break;
+        }
       }
     }
   }
 
   let made = 0;
+  const cacheOk = true;
   if (toRender.length > 0) {
     const chromium = loadChromium(root);
     const browser = await chromium.launch();
@@ -272,7 +350,8 @@ async function run({ dir, pages, logger, cfg, root, base }) {
             }
             // In-memory only; flushed once after every theme finishes (a
             // mid-run kill just re-renders next build).
-            manifest[`${job.slug}|${theme}`] = { hash: job.hash, count: diagrams.length };
+            if (cacheOk)
+              manifest[`${job.slug}|${theme}`] = { hash: job.hash, count: diagrams.length };
           } catch (err) {
             // One stubborn page shouldn't sink the rest of the export.
             logger.warn(`diagram PNGs: ${job.slug} [${theme}] skipped — ${err?.message || err}`);
@@ -283,7 +362,11 @@ async function run({ dir, pages, logger, cfg, root, base }) {
     } finally {
       await browser.close();
     }
-    if (cacheDir) await write(manifestPath, JSON.stringify(manifest, null, 2));
+    if (cacheDir) {
+      await write(manifestPath, JSON.stringify(manifest, null, 2)).catch((err) =>
+        logger.warn(`diagram PNGs: render cache not saved — ${err?.message || err}`)
+      );
+    }
   }
 
   const reused = toCopy.reduce((n, j) => n + j.count * cfg.variants.length, 0);

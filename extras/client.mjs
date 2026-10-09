@@ -219,7 +219,7 @@ export function initDiagramZoom(opts) {
   }
 
   function open(svg) {
-    if (!overlay) buildOverlay();
+    if (!overlay?.isConnected) buildOverlay();
     // Identify which build-time PNG backs this diagram (slug + DOM index), then
     // probe so the copy/download buttons only show when it exists.
     overlay.__slug = diagramSlug(location.pathname, base);
@@ -298,8 +298,18 @@ export function initDiagramZoom(opts) {
     overlay.querySelector(".mermaid-zoom__close").focus();
   }
 
+  // A view-transition swap can replace <body> (and our overlay with it): drop
+  // all open state so the next click rebuilds a fresh overlay.
+  document.addEventListener("astro:before-swap", () => {
+    document.documentElement.style.removeProperty("overflow");
+    overlay = null;
+    lastTrigger = null;
+  });
+
+  const isOpen = () => !!overlay?.isConnected && !overlay.hasAttribute("hidden");
+
   document.addEventListener("click", (e) => {
-    if (overlay && !overlay.hasAttribute("hidden")) return; // already open
+    if (isOpen()) return; // already open
     const svg = e.target.closest(DIAGRAM);
     if (!svg) return;
     lastTrigger = svg;
@@ -307,8 +317,18 @@ export function initDiagramZoom(opts) {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (overlay && !overlay.hasAttribute("hidden")) {
+    if (isOpen()) {
       if (e.key === "Escape") close();
+      // aria-modal: keep Tab inside the toolbar instead of the covered page.
+      if (e.key === "Tab") {
+        const btns = [...overlay.querySelectorAll(".mermaid-zoom__tools button")].filter(
+          (b) => !b.hidden
+        );
+        const i = btns.indexOf(document.activeElement);
+        e.preventDefault();
+        const next = e.shiftKey ? (i <= 0 ? btns.length - 1 : i - 1) : (i + 1) % btns.length;
+        btns[next]?.focus();
+      }
       return;
     }
     // Enter/Space on a focused diagram opens it.

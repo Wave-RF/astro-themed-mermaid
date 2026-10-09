@@ -5,9 +5,10 @@
 //   import { diagramPng } from "@wave-rf/astro-themed-mermaid/png";
 //   import { diagramZoom } from "@wave-rf/astro-themed-mermaid/zoom";
 //   import { mermaidTheme } from "./example/mermaid-theme.mjs";
+//   import { diagramExtras } from "./example/diagram-extras.mjs";
 //
 //   const mermaid = themedMermaid(mermaidTheme);
-//   const { selector, png, zoom } = diagramExtras;
+//   const { png, zoom } = diagramExtras;
 //
 //   export default defineConfig({
 //     markdown: { remarkPlugins: [mermaid.remarkInjectClassdefs], rehypePlugins: [mermaid.rehypeMermaid] },

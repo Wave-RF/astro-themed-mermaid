@@ -35,7 +35,7 @@ What must stay true. Preserve the named invariant when you touch its code; each 
 7. **Font + label measurement** — an inlined `@font-face` is named for the **primary family**, not the whole CSS font stack; `measurementCss` must reach the build-time render page, and its selectors must be **bare** (no `svg[aria-roledescription…]` ancestor — a no-op at measure time).
 8. **`PAD_TOP` (22px in `index.mjs`) is paired with the CSS `translateY(-17px)`** that lifts the cluster-title pill. Change one → revisit the other, or the pill clips.
 9. **`securityLevel` defaults to `"strict"`** — don't silently loosen it.
-10. **Extras are optional and agree on one selector.** `playwright` is an *optional* peer — only `extras/png.mjs` and `tools/` may load it (lazily, from the consumer's root); `index.mjs` must not. The lightbox and the PNG export both take their default selector, theme list, `outDir` and path scheme from `extras/shared.mjs` — never a second copy, or diagram N diverges. Colors stay `var(--mermaid-*)` (CSS only).
+10. **Extras are optional and agree on one selector.** `playwright` is an *optional* peer — only `extras/browser.mjs` (used by `extras/png.mjs` and `tools/`) may load it (lazily, from the consumer's root); `index.mjs` must not. The lightbox and the PNG export both take their default selector, theme list, `outDir` and path scheme from `extras/shared.mjs` — never a second copy, or diagram N diverges. Colors stay `var(--mermaid-*)` (CSS only).
 11. **ESM + Node ≥ 20** (`package.json` `engines`) — no CommonJS, no newer-only syntax/APIs.
 
 ## Build & Test Commands
@@ -152,6 +152,7 @@ extras/                 → optional features, one subpath export each: png.mjs 
 tools/, bin/            → the `astro-themed-mermaid audit|screenshot` CLI
 example/                → copy-pasteable reference config + stylesheet (not published)
 test/plugin.test.mjs    → node:test suite — the guard against Mermaid-version drift
+test/extras.test.mjs    → node:test suite for extras/ and tools/ (pure parts: paths, options, selector agreement)
 scripts/                → shell + node tooling (PR-title lint, reviewer manifest, markers, dev-version, repo setup)
 .githooks/              → universal pre-commit + pre-push (installed via pnpm run setup)
 .claude/                → settings, review subagents, /prepush + /release commands, gate/marker/format hooks
