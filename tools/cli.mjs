@@ -15,6 +15,7 @@ import {
   DEFAULT_THEME_ATTR,
   DEFAULT_THEMES,
   diagramSlug,
+  MARKER_ATTR,
 } from "../extras/shared.mjs";
 
 export const USAGE = `astro-themed-mermaid <command> [options]
@@ -115,7 +116,8 @@ export async function discoverPages(dist, only) {
     const slug = slugFromHtmlPath(relative(dist, file));
     if (only && !only.includes(slug)) continue;
     const html = await readFile(file, "utf8");
-    if (html.includes('aria-roledescription="')) found.push({ slug, file });
+    if (html.includes(MARKER_ATTR) || html.includes('aria-roledescription="'))
+      found.push({ slug, file });
   }
   found.sort((a, b) => a.slug.localeCompare(b.slug));
   if (only) {

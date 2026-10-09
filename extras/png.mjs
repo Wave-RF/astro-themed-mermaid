@@ -42,19 +42,23 @@ import {
   DEFAULT_THEMES,
   DEFAULT_VARIANTS,
   diagramSlug,
+  MARKER_ATTR,
+  PNG_ATTR_PREFIX,
+  pngAttrName,
   pngFileName,
   pngRelPath,
+  pngUrl,
 } from "./shared.mjs";
 
 // Bump to invalidate every cached PNG after a change to the render routine.
-const RENDER_VERSION = "1";
+const RENDER_VERSION = "2";
 
 /** Env var that, when "1", skips the export (e.g. fast CI jobs, dev loops). */
 export const SKIP_ENV = "ASTRO_THEMED_MERMAID_SKIP_PNG";
 
 /**
  * @typedef {object} DiagramPngOptions
- * @property {string} [selector] CSS selector matching each diagram on a built page. MUST match the lightbox's. Default `svg[aria-roledescription]`.
+ * @property {string} [selector] CSS selector matching each diagram on a built page. MUST match the lightbox's. Default `svg[data-themed-mermaid]`.
  * @property {string[]} [themes] Theme names, one PNG set each. Default `["light","dark"]`.
  * @property {string} [themeAttr] Attribute set on `<html>` to select a theme. Default `data-theme`.
  * @property {string|null} [themeStorageKey] localStorage key the host reads its theme from (Starlight: `starlight-theme`). Default `null` (none).
@@ -65,6 +69,7 @@ export const SKIP_ENV = "ASTRO_THEMED_MERMAID_SKIP_PNG";
  * @property {Array<{suffix:string,transparent:boolean}>} [variants] Variants rendered per diagram. Default solid + `-transparent`.
  * @property {string} [outDir] Directory under the build output. Default `diagrams`.
  * @property {false|string} [cacheDir] Render cache dir (relative to the project root), or `false`. Default `node_modules/.cache/astro-themed-mermaid-png`.
+ * @property {boolean} [dataAttributes] Write `data-png-<theme>[-transparent]` URL attributes onto each diagram in the built HTML (only for PNGs actually produced). Default `true`.
  * @property {string} [skipEnv] Env var that skips the export when `"1"`. Default `ASTRO_THEMED_MERMAID_SKIP_PNG`.
  */
 
@@ -80,6 +85,7 @@ export const PNG_DEFAULTS = Object.freeze({
   variants: DEFAULT_VARIANTS,
   outDir: DEFAULT_OUT_DIR,
   cacheDir: "node_modules/.cache/astro-themed-mermaid-png",
+  dataAttributes: true,
   skipEnv: SKIP_ENV,
 });
 
@@ -113,7 +119,7 @@ export function resolvePngOptions(options = {}) {
  */
 export function extractDiagramSvgs(html) {
   const out = [];
-  const open = /<svg\b[^>]*aria-roledescription/g;
+  const open = new RegExp(`<svg\\b[^>]*(?:${MARKER_ATTR}|aria-roledescription)`, "g");
   const tag = /<(\/?)svg\b/g;
   let m = open.exec(html);
   while (m) {
@@ -132,6 +138,30 @@ export function extractDiagramSvgs(html) {
     m = open.exec(html);
   }
   return out;
+}
+
+const SVG_TAG_RE = /<svg\b[^>]*>/g;
+const hasMarker = (tag) => new RegExp(`\\s${MARKER_ATTR}(?=[\\s=/>])`).test(tag);
+
+/**
+ * Add `data-png-*` attributes to the diagrams in built HTML. `entries` maps the
+ * ORDINAL of a diagram among the page's marker-stamped `<svg>`s to
+ * `{attrName: url}`. Any existing `data-png-*` attribute on a patched tag is
+ * replaced, so re-running is idempotent. Pure.
+ */
+export function stampPngAttributes(html, entries) {
+  let ordinal = -1;
+  return html.replace(SVG_TAG_RE, (tag) => {
+    if (!hasMarker(tag)) return tag;
+    ordinal++;
+    const attrs = entries.get(ordinal);
+    if (!attrs) return tag;
+    const clean = tag.replace(new RegExp(`\\s${PNG_ATTR_PREFIX}[\\w-]+(?:="[^"]*")?`, "g"), "");
+    const add = Object.entries(attrs)
+      .map(([k, v]) => ` ${k}="${String(v).replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`)
+      .join("");
+    return `${clean.slice(0, -1)}${add}>`;
+  });
 }
 
 /**
@@ -233,7 +263,7 @@ async function run({ dir, pages, logger, cfg, root, base }) {
     const html = await readFile(file, "utf8");
     // Match the ATTRIBUTE form a real diagram emits (`aria-roledescription="…"`);
     // the bare token can also appear as a selector string in a script.
-    if (!html.includes('aria-roledescription="')) continue;
+    if (!html.includes(MARKER_ATTR) && !html.includes('aria-roledescription="')) continue;
     diagramPages.push({ slug, file, html });
   }
   if (diagramPages.length === 0) return;
@@ -267,12 +297,14 @@ async function run({ dir, pages, logger, cfg, root, base }) {
         cacheDir &&
         entry &&
         entry.hash === hash &&
+        Array.isArray(entry.ordinals) &&
         Array.from({ length: entry.count }).every((_, i) =>
           cfg.variants.every((v) =>
             existsSync(join(cacheDir, `${hash}-${i}-${theme}${v.suffix}.png`))
           )
         );
-      if (cached) toCopy.push({ ...page, theme, hash, count: entry.count });
+      if (cached)
+        toCopy.push({ ...page, theme, hash, count: entry.count, ordinals: entry.ordinals });
       else toRender.push({ ...page, theme, hash });
     }
   }
@@ -283,8 +315,11 @@ async function run({ dir, pages, logger, cfg, root, base }) {
       pngRelPath({ outDir: cfg.outDir, slug, index: i, theme, transparent: v.transparent })
     );
 
+  // slug|theme -> {count, ordinals} for every theme whose PNGs are in place.
+  const done = new Map();
   for (const job of toCopy) {
-    for (let i = 0; i < job.count; i++) {
+    let ok = true;
+    for (let i = 0; i < job.count && ok; i++) {
       for (const v of cfg.variants) {
         try {
           await place(
@@ -294,10 +329,12 @@ async function run({ dir, pages, logger, cfg, root, base }) {
         } catch {
           // cache entry vanished: fall back to rendering this job instead
           toRender.push({ ...job });
+          ok = false;
           break;
         }
       }
     }
+    if (ok) done.set(`${job.slug}|${job.theme}`, { count: job.count, ordinals: job.ordinals });
   }
 
   let made = 0;
@@ -350,8 +387,15 @@ async function run({ dir, pages, logger, cfg, root, base }) {
             }
             // In-memory only; flushed once after every theme finishes (a
             // mid-run kill just re-renders next build).
-            if (cacheOk)
-              manifest[`${job.slug}|${theme}`] = { hash: job.hash, count: diagrams.length };
+            const ordinals = diagrams.map((d) => d.ordinal);
+            done.set(`${job.slug}|${theme}`, { count: diagrams.length, ordinals });
+            if (cacheOk) {
+              manifest[`${job.slug}|${theme}`] = {
+                hash: job.hash,
+                count: diagrams.length,
+                ordinals,
+              };
+            }
           } catch (err) {
             // One stubborn page shouldn't sink the rest of the export.
             logger.warn(`diagram PNGs: ${job.slug} [${theme}] skipped — ${err?.message || err}`);
@@ -369,26 +413,82 @@ async function run({ dir, pages, logger, cfg, root, base }) {
     }
   }
 
+  if (cfg.dataAttributes) {
+    for (const page of diagramPages) {
+      try {
+        await writeDataAttributes({ page, done, cfg, distDir, base });
+      } catch (err) {
+        logger.warn(
+          `diagram PNGs: data attributes for ${page.slug} skipped — ${err?.message || err}`
+        );
+      }
+    }
+  }
+
   const reused = toCopy.reduce((n, j) => n + j.count * cfg.variants.length, 0);
   logger.info(
     `diagram PNGs: ${made} rendered, ${reused} cached → ${cfg.outDir}/ (${cfg.themes.join(", ")} × ${cfg.variants.map((v) => v.suffix || "solid").join("+")})`
   );
 }
 
+// Put each diagram's PNG URLs on it (data-png-<theme>[-transparent]) in the BUILT
+// html. Only for files that exist on disk right now, so an attribute never
+// points at a PNG that wasn't produced (a failed theme or variant just has none).
+async function writeDataAttributes({ page, done, cfg, distDir, base }) {
+  const entries = new Map();
+  for (const theme of cfg.themes) {
+    const d = done.get(`${page.slug}|${theme}`);
+    if (!d) continue;
+    for (let i = 0; i < d.count; i++) {
+      const ordinal = d.ordinals[i];
+      if (!(ordinal >= 0)) continue; // matched by selector but not marker-stamped
+      for (const v of cfg.variants) {
+        const rel = pngRelPath({
+          outDir: cfg.outDir,
+          slug: page.slug,
+          index: i,
+          theme,
+          transparent: v.transparent,
+        });
+        if (!existsSync(join(distDir, rel))) continue;
+        const attrs = entries.get(ordinal) ?? {};
+        attrs[pngAttrName(theme, v.transparent)] = pngUrl({
+          base,
+          outDir: cfg.outDir,
+          slug: page.slug,
+          index: i,
+          theme,
+          transparent: v.transparent,
+        });
+        entries.set(ordinal, attrs);
+      }
+    }
+  }
+  if (entries.size === 0) return;
+  const html = await readFile(page.file, "utf8");
+  const patched = stampPngAttributes(html, entries);
+  if (patched !== html) await writeFile(page.file, patched);
+}
+
 // Read each diagram's SVG outerHTML + intrinsic size from the live (still-intact)
 // page. Must run before any renderPng() call, which empties the <body>.
 function extractDiagrams(page, selector) {
-  return page.evaluate((selector) => {
-    return [...document.querySelectorAll(selector)].map((svg) => {
-      const vb = (svg.getAttribute("viewBox") || "").split(/\s+/).map(Number);
-      const rect = svg.getBoundingClientRect();
-      return {
-        markup: svg.outerHTML,
-        natW: vb.length === 4 && vb[2] ? vb[2] : rect.width,
-        natH: vb.length === 4 && vb[3] ? vb[3] : rect.height,
-      };
-    });
-  }, selector);
+  return page.evaluate(
+    ({ selector, mark }) => {
+      const marked = [...document.querySelectorAll(`svg[${mark}]`)];
+      return [...document.querySelectorAll(selector)].map((svg) => {
+        const vb = (svg.getAttribute("viewBox") || "").split(/\s+/).map(Number);
+        const rect = svg.getBoundingClientRect();
+        return {
+          markup: svg.outerHTML,
+          natW: vb.length === 4 && vb[2] ? vb[2] : rect.width,
+          natH: vb.length === 4 && vb[3] ? vb[3] : rect.height,
+          ordinal: marked.indexOf(svg),
+        };
+      });
+    },
+    { selector, mark: MARKER_ATTR }
+  );
 }
 
 // Render ONE diagram to PNG: drop its SVG onto a padded card (surface bg, or

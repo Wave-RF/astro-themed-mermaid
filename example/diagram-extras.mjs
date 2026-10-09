@@ -21,7 +21,7 @@
 // ONE selector, handed to both integrations: the lightbox indexes diagrams by
 // it, the PNG export numbers them by it, so they must agree. (This is the
 // Starlight content area; omit it entirely on a plain Astro site.)
-const selector = ".sl-markdown-content svg[aria-roledescription]";
+const selector = ".sl-markdown-content svg[data-themed-mermaid]";
 
 export const diagramExtras = {
   selector,

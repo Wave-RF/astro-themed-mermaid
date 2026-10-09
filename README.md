@@ -97,6 +97,19 @@ it must be resolvable from your project root, i.e. a direct dependency. If it
 can't be found, the build only warns: `diagram PNG export skipped`).
 The core plugin never imports it.
 
+### The diagram marker
+
+`mermaid.rehypeMermaid` stamps every `<svg>` it renders — fresh or read from the
+render cache — with a `data-themed-mermaid` attribute. That attribute, not
+`aria-roledescription`, is what the PNG export, the lightbox and the CLI tools
+select by default (`DEFAULT_SELECTOR` = `svg[data-themed-mermaid]`, exported from
+`/shared`), so an unrelated `<svg aria-roledescription="image">` (a logo, an
+icon) is never treated as a diagram. The marker is added after the cache read, so
+existing cache entries keep working. If you use the uncached spelling
+(`[[rehypeMermaid, mermaid.rehypeMermaidOptions]]`), `mermaid.integration` adds
+the marker to Mermaid's own `<svg id="mermaid-…" aria-roledescription=…>` in the
+built HTML instead.
+
 ### PNG export (`/png`)
 
 After the build, drives Chromium over the built pages and writes a PNG of every
@@ -125,9 +138,10 @@ export default defineConfig({
 
 | option | default | purpose |
 |---|---|---|
-| `selector` | `svg[aria-roledescription]` | which SVGs are diagrams. **Must match `diagramZoom`'s** |
+| `selector` | `svg[data-themed-mermaid]` | which SVGs are diagrams. **Must match `diagramZoom`'s** |
 | `themes` | `["light", "dark"]` | one PNG set per theme name |
 | `themeAttr` | `"data-theme"` | attribute set on `<html>` to select a theme before first paint |
+| `dataAttributes` | `true` | write `data-png-<theme>[-transparent]` URLs onto each diagram (see above) |
 | `themeStorageKey` | `null` | localStorage key your site reads its theme from (Starlight: `"starlight-theme"`) |
 | `surfaceVar` | `"--mermaid-surface"` | CSS variable for the solid card background |
 | `scale` | `2` | device scale factor (retina) |
@@ -144,6 +158,23 @@ Playwright is resolved from **your** project, not this package; with an Astro
 `<html>` before first paint. If your site re-reads its theme from localStorage
 at load (Starlight does), also set `themeStorageKey` (`"starlight-theme"`), or
 every theme renders identically. The CLI's `--theme-storage-key` is the same.
+
+#### PNG URLs as data attributes
+
+Each diagram also gets the URLs of its PNGs as attributes in the built HTML:
+`data-png-light`, `data-png-dark`, `data-png-light-transparent`,
+`data-png-dark-transparent` (one per theme and variant you configured), already
+including Astro's `base` and `outDir`. A site with its own lightbox can read
+`svg.dataset.pngDark` and wire up Copy/Download without this package's zoom.
+Turn it off with `dataAttributes: false`.
+
+These are written by the PNG integration *after* it has produced the files, not
+predicted by the rehype pass. The rehype pass cannot know the page's final route
+(content collections, MDX layouts and `getStaticPaths` all decide it later), the
+diagram's index among the page's diagrams, or whether the export will run and
+succeed. The integration knows all three, and writes an attribute only for a PNG
+that exists on disk at that moment, so an attribute never points at a missing
+file (a failed theme or variant simply has no attribute).
 
 ### Zoom lightbox (`/zoom`)
 
@@ -164,7 +195,7 @@ export default defineConfig({
 
 | option | default | purpose |
 |---|---|---|
-| `selector` | `svg[aria-roledescription]` | which SVGs are diagrams. **Must match `diagramPng`'s** |
+| `selector` | `svg[data-themed-mermaid]` | which SVGs are diagrams. **Must match `diagramPng`'s** |
 | `png` | `true` | show Copy/Download/background buttons when a PNG exists |
 | `outDir` | `"diagrams"` | where `diagramPng` wrote PNGs (match its `outDir`) |
 | `themes` | `["light", "dark"]` | theme names PNGs exist for |
@@ -173,6 +204,11 @@ export default defineConfig({
 | `filenamePrefix` | `""` | prefix for downloaded files (`<prefix>-<slug>-diagram-<n>.png`) |
 | `css` | `true` | inject the bundled `zoom.css`; `false` to style it yourself |
 | `labels` | English | any subset of the UI strings (see `DEFAULT_LABELS`) |
+
+> **Why not `starlight-image-zoom` or similar?** Those zoom `<img>` / `<picture>`
+> elements. Mermaid diagrams are inline `<svg>`, so they are skipped. That is why
+> this package ships its own lightbox. It is opt-in: leave `diagramZoom()` out and
+> use the `data-png-*` attributes above with whatever lightbox you prefer.
 
 Styling is `@wave-rf/astro-themed-mermaid/zoom.css`, built on the variables you
 already define (`--mermaid-surface`, `--mermaid-ink`, `--mermaid-border`,
@@ -184,13 +220,31 @@ already define (`--mermaid-surface`, `--mermaid-ink`, `--mermaid-border`,
 > `<index>` is the diagram's DOM position among `selector` matches. The PNG
 > export numbers them the same way. Both default to one shared constant
 > (`DEFAULT_SELECTOR`, exported from `/shared`); if you narrow the selector for
-> one (e.g. Starlight's `.sl-markdown-content svg[aria-roledescription]`), pass
+> one (e.g. Starlight's `.sl-markdown-content svg[data-themed-mermaid]`), pass
 > the **same** value to the other, or Copy/Download will fetch the wrong diagram.
+
+Plain (non-Starlight) Astro example. The defaults already fit a site that sets
+`data-theme` on `<html>`; add `themeStorageKey` if your theme script reads a
+localStorage key (it can also be omitted, the export then follows the emulated OS
+colour scheme):
+
+```js
+integrations: [
+  mermaid.integration,
+  diagramZoom(),
+  diagramPng({ themeStorageKey: "wh-theme" }),
+];
+```
+
+If your site toggles a class instead of an attribute, or keeps the theme on
+another element, set `themeAttr` / `themeTarget` (zoom) and `themeAttr` (png) to
+match. The lightbox works with Astro's `<ClientRouter/>`: it is rebuilt after a
+body swap.
 
 Starlight example:
 
 ```js
-const selector = ".sl-markdown-content svg[aria-roledescription]";
+const selector = ".sl-markdown-content svg[data-themed-mermaid]"; // optional: restrict to the content area
 integrations: [
   mermaid.integration,
   diagramZoom({ selector }),

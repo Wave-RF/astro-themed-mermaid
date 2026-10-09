@@ -8,12 +8,31 @@
 // "diagram index N" means the same diagram on both sides by construction.
 
 /**
- * Selector matching every rendered Mermaid diagram on a built page. Mermaid
- * stamps `aria-roledescription` on the root `<svg>`. Narrow it to your content
- * area if the page has other SVGs carrying that attribute (Starlight:
- * `.sl-markdown-content svg[aria-roledescription]`).
+ * Attribute the package's own `rehypeMermaid` stamps on every `<svg>` it
+ * renders (fresh or from cache), and that the build-time integration adds to any
+ * Mermaid SVG that reached the page unstamped. It is what tells "a diagram this
+ * package rendered" apart from any other SVG, so the PNG export, the lightbox
+ * and the CLI tools all select on it.
  */
-export const DEFAULT_SELECTOR = "svg[aria-roledescription]";
+export const MARKER_ATTR = "data-themed-mermaid";
+
+/** The same attribute as a hast property name (what the rehype pass sets). */
+export const MARKER_PROP = "dataThemedMermaid";
+
+/**
+ * Selector matching every diagram this package rendered. Narrow it (e.g.
+ * `article svg[data-themed-mermaid]`) to restrict to a content area; pass the
+ * SAME value to `diagramPng` and `diagramZoom`.
+ */
+export const DEFAULT_SELECTOR = `svg[${MARKER_ATTR}]`;
+
+/** Prefix of the per-diagram PNG URL attributes (`data-png-<theme>[-transparent]`). */
+export const PNG_ATTR_PREFIX = "data-png-";
+
+/** Attribute name carrying the PNG URL for a theme/variant. */
+export function pngAttrName(theme, transparent = false) {
+  return `${PNG_ATTR_PREFIX}${theme}${transparent ? TRANSPARENT_SUFFIX : ""}`;
+}
 
 /** Directory (under the build output) PNGs are written to, and served from. */
 export const DEFAULT_OUT_DIR = "diagrams";

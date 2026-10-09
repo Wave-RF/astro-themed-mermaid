@@ -16,9 +16,9 @@ export interface DiagramZoomLabels {
 
 export interface DiagramZoomOptions {
   /**
-   * CSS selector matching each diagram. MUST be the same as `diagramPng`'s
+   * CSS selector matching each diagram (default: the package's `data-themed-mermaid` marker). MUST be the same as `diagramPng`'s
    * `selector` (both default to the same value) so diagram N is the same
-   * diagram on both sides. Default `svg[aria-roledescription]`.
+   * diagram on both sides. Default `svg[data-themed-mermaid]`.
    */
   selector?: string;
   /** Show Copy/Download/background buttons when the build-time PNG exists. Default `true`. */

@@ -34,7 +34,7 @@ export const DEFAULT_LABELS = Object.freeze({
 
 /**
  * @typedef {object} DiagramZoomOptions
- * @property {string} [selector] CSS selector matching each diagram. MUST match the PNG integration's. Default `svg[aria-roledescription]`.
+ * @property {string} [selector] CSS selector matching each diagram. MUST match the PNG integration's. Default `svg[data-themed-mermaid]`.
  * @property {boolean} [png] Show Copy/Download/background buttons when the build-time PNG exists (needs `diagramPng`). Default `true`.
  * @property {string} [outDir] Where `diagramPng` wrote the PNGs. Default `diagrams`.
  * @property {string[]} [themes] Theme names PNGs exist for. Default `["light","dark"]`.
@@ -85,13 +85,17 @@ export function diagramZoom(options = {}) {
       "astro:config:setup": ({ config, injectScript }) => {
         const cfg = resolveZoomOptions(options, config.base);
         const { css, ...clientOpts } = cfg;
-        const lines = [];
-        if (css) lines.push('import "@wave-rf/astro-themed-mermaid/zoom.css";');
-        lines.push(
-          'import { initDiagramZoom } from "@wave-rf/astro-themed-mermaid/zoom/client";',
-          `initDiagramZoom(${JSON.stringify(clientOpts)});`
+        // Stylesheet via "page-ssr" (imported into every page module, so Astro
+        // links it into the HTML). A CSS import inside a "page" script is built
+        // but never linked into the page.
+        if (css) injectScript("page-ssr", 'import "@wave-rf/astro-themed-mermaid/zoom.css";');
+        injectScript(
+          "page",
+          [
+            'import { initDiagramZoom } from "@wave-rf/astro-themed-mermaid/zoom/client";',
+            `initDiagramZoom(${JSON.stringify(clientOpts)});`,
+          ].join("\n")
         );
-        injectScript("page", lines.join("\n"));
       },
     },
   };

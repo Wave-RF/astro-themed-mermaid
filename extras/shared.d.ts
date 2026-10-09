@@ -1,4 +1,8 @@
+export const MARKER_ATTR: string;
+export const MARKER_PROP: string;
 export const DEFAULT_SELECTOR: string;
+export const PNG_ATTR_PREFIX: string;
+export function pngAttrName(theme: string, transparent?: boolean): string;
 export const DEFAULT_OUT_DIR: string;
 export const TRANSPARENT_SUFFIX: string;
 export const DEFAULT_THEMES: string[];

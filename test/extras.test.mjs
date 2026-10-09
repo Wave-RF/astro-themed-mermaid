@@ -7,13 +7,16 @@ import {
   extractDiagramSvgs,
   PNG_DEFAULTS,
   resolvePngOptions,
+  stampPngAttributes,
   stylesFingerprint,
 } from "../extras/png.mjs";
 import {
   DEFAULT_SELECTOR,
   diagramSlug,
   downloadName,
+  MARKER_ATTR,
   normalizeBase,
+  pngAttrName,
   pngFileName,
   pngRelPath,
   pngUrl,
@@ -177,10 +180,9 @@ test("zoom integration injects the client script with serialized options", () =>
     config: { base: "/docs" },
     injectScript: (stage, code) => injected.push({ stage, code }),
   });
-  assert.equal(injected.length, 1);
+  assert.equal(injected.length, 1, "css:false injects only the script");
   assert.equal(injected[0].stage, "page");
   assert.match(injected[0].code, /zoom\/client/);
-  assert.doesNotMatch(injected[0].code, /zoom\.css/, "css:false must not import the stylesheet");
   const arg = injected[0].code.match(/initDiagramZoom\((.*)\);/s)[1];
   const parsed = JSON.parse(arg);
   assert.equal(parsed.selector, ".post svg[aria-roledescription]");
@@ -188,9 +190,13 @@ test("zoom integration injects the client script with serialized options", () =>
   const withCss = [];
   diagramZoom().hooks["astro:config:setup"]({
     config: { base: "/" },
-    injectScript: (_s, code) => withCss.push(code),
+    injectScript: (stage, code) => withCss.push({ stage, code }),
   });
-  assert.match(withCss[0], /zoom\.css/);
+  // The stylesheet must go through "page-ssr": a CSS import in a "page" script is
+  // built by Vite but never linked into the HTML (verified with a real build).
+  const css = withCss.find((x) => /zoom\.css/.test(x.code));
+  assert.equal(css?.stage, "page-ssr");
+  assert.equal(withCss.find((x) => /initDiagramZoom/.test(x.code))?.stage, "page");
 });
 
 test("package wiring: subpath exports, bin, optional playwright peer", async () => {
@@ -253,4 +259,48 @@ test("audit: contrast math", () => {
 test("core module stays free of a hard browser dependency", async () => {
   const src = await readFile(new URL("../index.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(src, /["']playwright["']/);
+});
+
+test("default selector is the package marker, shared by every consumer", () => {
+  assert.equal(DEFAULT_SELECTOR, `svg[${MARKER_ATTR}]`);
+  assert.equal(MARKER_ATTR, "data-themed-mermaid");
+  assert.equal(parseCliOptions([]).selector, DEFAULT_SELECTOR);
+  assert.equal(resolvePngOptions().selector, DEFAULT_SELECTOR);
+  assert.equal(resolveZoomOptions().selector, DEFAULT_SELECTOR);
+});
+
+test("png data attributes: stamped by marker ordinal, idempotent, never on unmarked svgs", () => {
+  const html =
+    '<svg aria-roledescription="image" id="icon"></svg>' +
+    '<svg id="mermaid-1" aria-roledescription="flowchart-v2" data-themed-mermaid><g/></svg>' +
+    '<svg id="mermaid-2" aria-roledescription="sequence" data-themed-mermaid="">x</svg>';
+  const entries = new Map([
+    [
+      0,
+      {
+        [pngAttrName("light")]: "/b/d/p/0-light.png",
+        [pngAttrName("light", true)]: "/b/d/p/0-light-transparent.png",
+      },
+    ],
+    [1, { [pngAttrName("dark")]: "/b/d/p/1-dark.png?a=1&b=2" }],
+  ]);
+  const out = stampPngAttributes(html, entries);
+  assert.match(
+    out,
+    /^<svg aria-roledescription="image" id="icon"><\/svg>/,
+    "unmarked svg untouched"
+  );
+  assert.match(
+    out,
+    /id="mermaid-1"[^>]* data-png-light="\/b\/d\/p\/0-light\.png" data-png-light-transparent="\/b\/d\/p\/0-light-transparent\.png">/
+  );
+  assert.match(out, /id="mermaid-2"[^>]* data-png-dark="\/b\/d\/p\/1-dark\.png\?a=1&amp;b=2">/);
+  assert.equal(stampPngAttributes(out, entries), out, "re-running does not duplicate");
+  const dropped = stampPngAttributes(out, new Map([[0, { "data-png-dark": "/x" }]]));
+  assert.doesNotMatch(
+    dropped.split("</svg>")[1],
+    /data-png-dark="\/b/,
+    "stale attrs replaced on patched tags"
+  );
+  assert.equal(pngAttrName("dark", true), "data-png-dark-transparent");
 });
