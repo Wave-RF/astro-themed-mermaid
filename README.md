@@ -33,6 +33,9 @@ Published under semver, automatically on merge to `main` (see
 [Releases](https://github.com/Wave-RF/astro-themed-mermaid/releases)). A breaking
 change releases a new major.
 
+`playwright` is an optional peer, needed only for PNG export and the `audit` /
+`screenshot` tools; see [Diagram extras](#diagram-extras-png-export-zoom-lightbox-dev-tools).
+
 > Diagram SSR needs a headless Chromium. `rehype-mermaid` uses Playwright —
 > `pnpm exec playwright install chromium` (Astro/Starlight setups usually do
 > this already).
@@ -141,7 +144,7 @@ export default defineConfig({
 | `selector` | `svg[data-themed-mermaid]` | which SVGs are diagrams. **Must match `diagramZoom`'s** |
 | `themes` | `["light", "dark"]` | one PNG set per theme name |
 | `themeAttr` | `"data-theme"` | attribute set on `<html>` to select a theme before first paint |
-| `dataAttributes` | `true` | write `data-png-<theme>[-transparent]` URLs onto each diagram (see above) |
+| `dataAttributes` | `true` | write `data-png-<theme>[-transparent]` URLs onto each diagram (see [PNG URLs as data attributes](#png-urls-as-data-attributes)) |
 | `themeStorageKey` | `null` | localStorage key your site reads its theme from (Starlight: `"starlight-theme"`) |
 | `surfaceVar` | `"--mermaid-surface"` | CSS variable for the solid card background |
 | `scale` | `2` | device scale factor (retina) |
@@ -174,14 +177,17 @@ predicted by the rehype pass. The rehype pass cannot know the page's final route
 diagram's index among the page's diagrams, or whether the export will run and
 succeed. The integration knows all three, and writes an attribute only for a PNG
 that exists on disk at that moment, so an attribute never points at a missing
-file (a failed theme or variant simply has no attribute).
+file (a failed theme or variant simply has no attribute). If the browser fails
+to launch, PNGs already in the render cache are still placed and still get their
+attributes; only the uncached ones are skipped.
 
 ### Zoom lightbox (`/zoom`)
 
 Click (or Enter on) any diagram to open it in a lightbox that always fits the
 viewport; oversized diagrams get a 1:1 pan toggle with edge fades. When the
 build-time PNGs exist, Copy / Download / transparent-background buttons appear
-(they stay hidden under `astro dev`, which runs no build hook). It is an Astro
+(they stay hidden under `astro dev`, which runs no build hook, and on hosts that
+answer a missing PNG with a 200 HTML page: the response must be `image/*`). It is an Astro
 integration: it injects the script and stylesheet into every page, so there is
 no component to mount.
 
@@ -203,7 +209,7 @@ export default defineConfig({
 | `themeTarget` | `"html"` | selector of the element carrying that attribute |
 | `filenamePrefix` | `""` | prefix for downloaded files (`<prefix>-<slug>-diagram-<n>.png`) |
 | `css` | `true` | inject the bundled `zoom.css`; `false` to style it yourself |
-| `labels` | English | any subset of the UI strings (see `DEFAULT_LABELS`) |
+| `labels` | English | any subset of the UI strings (see `DEFAULT_LABELS`, exported from `@wave-rf/astro-themed-mermaid/zoom`) |
 
 > **Why not `starlight-image-zoom` or similar?** Those zoom `<img>` / `<picture>`
 > elements. Mermaid diagrams are inline `<svg>`, so they are skipped. That is why
@@ -266,7 +272,9 @@ pnpm exec astro-themed-mermaid screenshot # screenshots/<page>-<theme>-<n>.png
 
 - `audit` reports edge-label centering vs. the nearest edge, cylinder label
   offset, cluster-title pill straddle, and per-class node fill/label WCAG
-  contrast. Numbers, not opinions.
+  contrast. Numbers, not opinions. Each entry's `diagram` is the **1-based**
+  position among all `selector` matches on the page (flowchart or not), the same
+  `<n>` as in `screenshot`'s filenames. (The PNG export's `<index>` is 0-based.)
 - `screenshot` writes one PNG per diagram per theme, for visual regression.
 
 Options (both): `--dist` (default `dist`), `--out` (`screenshots`), `--pages a,b`
