@@ -72,12 +72,18 @@ export interface ThemedMermaid {
    * Drop-in rehype plugin — add to `markdown.rehypePlugins` directly (no
    * options tuple). Wraps rehype-mermaid with a content-addressed per-diagram
    * render cache: a document whose diagrams are all cached never launches the
-   * render browser. See the `cache` config option.
+   * render browser. See the `cache` config option. Also stamps each rendered
+   * `<svg>` with `data-themed-mermaid` (`MARKER_ATTR` in `/shared`), the
+   * attribute `diagramPng` and `diagramZoom` select by default.
    */
   rehypeMermaid: () => (tree: unknown, file?: unknown) => Promise<void> | undefined;
   /** Remark plugin — add to `markdown.remarkPlugins`. Injects `classDefs`. */
   remarkInjectClassdefs: () => (tree: unknown) => void;
-  /** Astro integration — add to `integrations`. Rewrites the built SVGs. */
+  /**
+   * Astro integration — add to `integrations`. Rewrites the built SVGs, and
+   * also stamps any Mermaid SVG in the built HTML that is not yet marked with
+   * `data-themed-mermaid`.
+   */
   integration: AstroIntegration;
 }
 

@@ -26,6 +26,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve as joinPath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { visit } from "unist-util-visit";
+import { MARKER_ATTR, MARKER_PROP } from "./extras/shared.mjs";
 
 // `classDef` is valid in flowchart/graph diagrams only; other diagram types
 // (sequence, class, state, gantt, …) parse it as an error, so the classDef
@@ -302,6 +303,31 @@ export function themedMermaid(config = {}) {
     });
   }
 
+  // Stamp the package's marker on a rendered <svg> hast element (see
+  // MARKER_ATTR). Done AFTER the cache write/read so cache entries stay
+  // marker-free: old caches keep working and need no version bump.
+  function stampMarker(el) {
+    if (el?.type === "element" && el.tagName === "svg") {
+      el.properties = { ...el.properties, [MARKER_PROP]: "" };
+    }
+  }
+
+  // Safety net for SVGs that reached the page unstamped (the uncached
+  // `[[rehypeMermaid, rehypeMermaidOptions]]` spelling, or another renderer):
+  // add the marker to Mermaid's own root <svg> (id `mermaid-…` AND an
+  // aria-roledescription — an unrelated SVG has neither) in the built HTML.
+  const SVG_OPEN_TAG_RE = /<svg\b[^>]*>/g;
+  function stampBuiltHtml(html) {
+    if (!html.includes('id="mermaid-')) return html;
+    return html.replace(SVG_OPEN_TAG_RE, (tag) =>
+      /\sid="mermaid-/.test(tag) &&
+      /\saria-roledescription="/.test(tag) &&
+      !tag.includes(MARKER_ATTR)
+        ? `${tag.slice(0, -1)} ${MARKER_ATTR}>`
+        : tag
+    );
+  }
+
   function integration() {
     async function walk(dir) {
       const out = [];
@@ -329,6 +355,11 @@ export function themedMermaid(config = {}) {
             if (html.includes("<br></br>")) {
               html = html.replaceAll("<br></br>", "<br>");
               brFixes++;
+              changed = true;
+            }
+            const stamped = stampBuiltHtml(html);
+            if (stamped !== html) {
+              html = stamped;
               changed = true;
             }
             if (html.includes("#mermaid-")) {
@@ -538,7 +569,12 @@ export function themedMermaid(config = {}) {
       let innerPromise; // one rehype-mermaid instance per processor, like the uncached spelling
       const inner = () => (innerPromise ??= Promise.resolve(loadInner()));
       return async (tree, file) => {
-        if (!cacheable || !cacheDir) return (await inner())(tree, file);
+        if (!cacheable || !cacheDir) {
+          const found = findMermaidInstances(tree);
+          await (await inner())(tree, file);
+          for (const { parent, index } of found) stampMarker(parent.children[index]);
+          return;
+        }
         const instances = findMermaidInstances(tree);
         if (instances.length === 0) return; // nothing to do — and no browser (parity with rehype-mermaid)
 
@@ -548,7 +584,10 @@ export function themedMermaid(config = {}) {
         }
 
         if (instances.every((i) => i.cached)) {
-          for (const { parent, index, cached } of instances) parent.children[index] = cached;
+          for (const { parent, index, cached } of instances) {
+            parent.children[index] = cached;
+            stampMarker(cached);
+          }
           return; // full hit: rehype-mermaid never runs, Chromium never launches
         }
 
@@ -558,8 +597,10 @@ export function themedMermaid(config = {}) {
         await (await inner())(tree, file);
         for (const { parent, index, key } of instances) {
           const rendered = parent.children[index];
-          if (rendered?.type === "element" && rendered.tagName === "svg")
+          if (rendered?.type === "element" && rendered.tagName === "svg") {
             writeCacheEntry(key, rendered);
+            stampMarker(rendered);
+          }
         }
       };
     };
