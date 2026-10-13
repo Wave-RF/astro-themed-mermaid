@@ -121,10 +121,15 @@ function measure(selector) {
       });
     }
     const edges = [];
+    // ".edgeLabel" matches both Mermaid's <g class="edgeLabel"> and the
+    // <span class="edgeLabel"> inside it, and both resolve to the same <p>:
+    // measure each label once.
+    const measured = new Set();
     for (const el of svg.querySelectorAll(".edgeLabel")) {
       const p = el.querySelector("span.edgeLabel p, .nodeLabel p");
       const text = p?.textContent?.trim();
-      if (!text) continue;
+      if (!text || measured.has(p)) continue;
+      measured.add(p);
       const lb = bbox(p);
       let nearest = null;
       let best = Number.POSITIVE_INFINITY;
