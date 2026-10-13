@@ -298,11 +298,18 @@ export function initDiagramZoom(opts) {
     overlay.querySelector(".mermaid-zoom__close").focus();
   }
 
-  // A view-transition swap can replace <body> (and our overlay with it): drop
-  // all open state so the next click rebuilds a fresh overlay.
+  // A view-transition navigation: close the lightbox and drop open state. Keep
+  // the overlay reference. Astro's default swap replaces <body> and the overlay
+  // with it, and open() then rebuilds it because it is no longer connected. A
+  // swap that keeps <body> (astro-vtbot's Starlight <Base> swaps only the
+  // content) keeps the overlay, and it is reused. Nulling it here built a
+  // second overlay beside the first on every such navigation.
   document.addEventListener("astro:before-swap", () => {
     document.documentElement.style.removeProperty("overflow");
-    overlay = null;
+    if (overlay) {
+      overlay.classList.remove("is-open");
+      overlay.setAttribute("hidden", "");
+    }
     lastTrigger = null;
   });
 

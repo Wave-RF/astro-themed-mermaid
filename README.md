@@ -238,8 +238,9 @@ integrations: [
 
 If your site toggles a class instead of an attribute, or keeps the theme on
 another element, set `themeAttr` / `themeTarget` (zoom) and `themeAttr` (png) to
-match. The lightbox works with Astro's `<ClientRouter/>`: it is rebuilt after a
-body swap.
+match. The lightbox works with Astro's `<ClientRouter/>`: a navigation closes
+it, and it is rebuilt after a swap that replaces `<body>` or reused after one
+that keeps it (astro-vtbot's Starlight `<Base>`).
 
 Starlight example:
 
