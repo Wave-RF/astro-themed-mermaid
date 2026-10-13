@@ -255,6 +255,7 @@ export function diagramPng(options = {}) {
  * Reader for the fingerprint: maps a stylesheet `href` as written in the built
  * HTML (site-absolute, so it carries Astro's `base`) to its file under
  * `distDir`. Returns the text, or null when it isn't a local file.
+ * @internal Exported for tests; not part of the public `./png` API.
  */
 export function localStyleReader(distDir, base = "") {
   const b = normalizeBase(base);
@@ -394,8 +395,8 @@ async function run({ dir, pages, logger, cfg, root, base }) {
                   made++;
                 }
               }
-              // In-memory only; flushed once after every theme finishes (a
-              // mid-run kill just re-renders next build).
+              // In-memory only; flushed once after rendering ends, even if a
+              // later theme fails (a mid-run kill just re-renders next build).
               const ordinals = diagrams.map((d) => d.ordinal);
               done.set(`${job.slug}|${theme}`, { count: diagrams.length, ordinals });
               manifest[`${job.slug}|${theme}`] = {
@@ -413,15 +414,17 @@ async function run({ dir, pages, logger, cfg, root, base }) {
       } finally {
         await browser.close();
       }
-      if (cacheDir) {
-        await write(manifestPath, JSON.stringify(manifest, null, 2)).catch((err) =>
-          logger.warn(`diagram PNGs: render cache not saved — ${err?.message || err}`)
-        );
-      }
     } catch (err) {
       // No browser (or it died): keep whatever is already in `done` — cached
       // PNGs are in dist/ — and still stamp their data-png-* attributes below.
       logger.warn(`diagram PNGs: rendering skipped — ${err?.message || err}`);
+    }
+    // Saved even after a failure above, so the themes that did render keep
+    // their cache entries (their PNGs are already in the cache dir).
+    if (cacheDir) {
+      await write(manifestPath, JSON.stringify(manifest, null, 2)).catch((err) =>
+        logger.warn(`diagram PNGs: render cache not saved — ${err?.message || err}`)
+      );
     }
   }
 

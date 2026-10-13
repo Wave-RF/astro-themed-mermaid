@@ -79,7 +79,8 @@ export function initDiagramZoom(opts) {
 
   // A 2xx is not enough: hosts that answer unknown paths with a 200 HTML page
   // must not make Copy/Download offer HTML as a PNG.
-  const isImage = (res) => res.ok && (res.headers.get("content-type") || "").startsWith("image/");
+  const isImage = (res) =>
+    res.ok && (res.headers.get("content-type") || "").toLowerCase().startsWith("image/");
 
   async function grabPng(mode) {
     const name = downloadName({

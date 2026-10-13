@@ -185,9 +185,10 @@ attributes; only the uncached ones are skipped.
 
 Click (or Enter on) any diagram to open it in a lightbox that always fits the
 viewport; oversized diagrams get a 1:1 pan toggle with edge fades. When the
-build-time PNGs exist, Copy / Download / transparent-background buttons appear
-(they stay hidden under `astro dev`, which runs no build hook, and on hosts that
-answer a missing PNG with a 200 HTML page: the response must be `image/*`). It is an Astro
+build-time PNGs exist, Copy / Download / transparent-background buttons appear.
+They stay hidden under `astro dev` (no build hook runs), and unless a `HEAD`
+request for the PNG returns 2xx with an `image/*` content type, so a host that
+answers missing paths with a 200 HTML page, or rejects `HEAD`, never shows them. It is an Astro
 integration: it injects the script and stylesheet into every page, so there is
 no component to mount.
 
