@@ -1,6 +1,6 @@
 {
   "name": "@wave-rf/astro-themed-mermaid",
-  "version": "0.3.1",
+  "version": "0.0.0-development",
   "description": "Build-time, theme-aware Mermaid diagrams for Astro / Starlight — color-agnostic SVG rewriting (CSS-variable theming, cluster-title pills, edge-label pills) on top of rehype-mermaid.",
   "type": "module",
   "license": "MIT",
@@ -75,7 +75,8 @@
     "lint": "biome lint .",
     "format": "biome format --write .",
     "check": "biome check .",
-    "verify": "biome check . && node --test && bash scripts/ci-marker.sh write",
+    "verify": "biome check . && node --test && pnpm run check:release && bash scripts/ci-marker.sh write",
+    "check:release": "node scripts/check-release-config.mjs",
     "setup": "git config core.hooksPath .githooks"
   },
   "dependencies": {
@@ -87,7 +88,11 @@
     "playwright": ">=1.40.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.4.15"
+    "@biomejs/biome": "^2.4.15",
+    "@semantic-release/commit-analyzer": "13.0.1",
+    "@semantic-release/release-notes-generator": "14.1.1",
+    "conventional-changelog-conventionalcommits": "9.3.1",
+    "semantic-release": "25.0.9"
   },
   "bin": {
     "astro-themed-mermaid": "./bin/astro-themed-mermaid.mjs"
