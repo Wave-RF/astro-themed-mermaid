@@ -5,9 +5,11 @@ Thanks for contributing to `@wave-rf/astro-themed-mermaid`.
 ## Setup
 
 ```sh
-pnpm install      # resolve deps (there's no committed lockfile — it's a library)
+pnpm install      # install from the committed pnpm-lock.yaml
 pnpm run setup    # one-time: install the git hooks (pre-commit + pre-push)
 ```
+
+`pnpm-lock.yaml` is committed, and CI and the release install with `--frozen-lockfile`, so they build exactly the dependency tree that was tested. The lockfile doesn't affect consumers, who resolve with their own. A dependency PR that changes `package.json` must update the lockfile too. `pnpm-workspace.yaml` sets `minimumReleaseAge` (7 days): a freshly published version can't be installed until it has aged, except `@wave-rf/*` and `@wavehouse/*`.
 
 Node ≥ 20. The package is pure ESM with no build step — `index.mjs`, `index.d.ts`, and `styles.css` are what ship.
 
