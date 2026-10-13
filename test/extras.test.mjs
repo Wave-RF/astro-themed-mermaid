@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
 import {
   diagramHash,
   diagramPng,
   extractDiagramSvgs,
+  localStyleReader,
   PNG_DEFAULTS,
   resolvePngOptions,
   stampPngAttributes,
@@ -303,4 +307,72 @@ test("png data attributes: stamped by marker ordinal, idempotent, never on unmar
     "stale attrs replaced on patched tags"
   );
   assert.equal(pngAttrName("dark", true), "data-png-dark-transparent");
+});
+
+test("PNG cache hash follows a base-prefixed public/ stylesheet", async () => {
+  const dist = await mkdtemp(join(tmpdir(), "atm-base-"));
+  try {
+    const page =
+      '<link rel="stylesheet" href="/docs/custom.css"><svg aria-roledescription="flowchart-v2"></svg>';
+    await writeFile(join(dist, "custom.css"), "a{color:red}");
+    const read = localStyleReader(dist, "/docs/");
+    const before = diagramHash(page, "dark", PNG_DEFAULTS, read);
+    await writeFile(join(dist, "custom.css"), "a{color:blue}");
+    assert.notEqual(
+      diagramHash(page, "dark", PNG_DEFAULTS, read),
+      before,
+      "editing a base-prefixed public/ stylesheet must bust the cache"
+    );
+    assert.equal(read("/docs/custom.css"), "a{color:blue}");
+    assert.equal(localStyleReader(dist, "")("/custom.css"), "a{color:blue}");
+  } finally {
+    await rm(dist, { recursive: true, force: true });
+  }
+});
+
+test("a browser failure keeps data-png-* for cached PNGs", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atm-nobrowser-"));
+  try {
+    const dist = join(root, "dist");
+    await mkdir(dist, { recursive: true });
+    const svg = `<svg aria-roledescription="flowchart-v2" ${MARKER_ATTR}></svg>`;
+    const html = `<html><body>${svg}</body></html>`;
+    await writeFile(join(dist, "index.html"), html);
+
+    // Seed a cache + manifest so light is a full hit and dark is uncached.
+    const cfg = resolvePngOptions();
+    const cacheDir = join(root, cfg.cacheDir);
+    await mkdir(cacheDir, { recursive: true });
+    const hash = diagramHash(html, "light", cfg, localStyleReader(dist, ""));
+    for (const v of cfg.variants)
+      await writeFile(join(cacheDir, `${hash}-0-light${v.suffix}.png`), "png");
+    await writeFile(
+      join(cacheDir, "manifest.json"),
+      JSON.stringify({ "index|light": { hash, count: 1, ordinals: [0] } })
+    );
+
+    const hooks = diagramPng().hooks;
+    const warnings = [];
+    const logger = { info() {}, warn: (m) => warnings.push(String(m)) };
+    await hooks["astro:config:done"]({
+      config: { root: pathToFileURL(`${root}/`), base: "", integrations: [] },
+      logger,
+    });
+    await hooks["astro:build:done"]({
+      dir: pathToFileURL(`${dist}/`),
+      pages: [{ pathname: "" }],
+      logger,
+    });
+
+    const out = await readFile(join(dist, "index.html"), "utf8");
+    assert.match(out, /data-png-light="\/diagrams\/index\/0-light\.png"/);
+    assert.match(out, /data-png-light-transparent=/);
+    assert.doesNotMatch(out, /data-png-dark/);
+    assert.ok(
+      warnings.some((w) => /rendering skipped/.test(w)),
+      "the failure is logged"
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

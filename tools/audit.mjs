@@ -102,7 +102,9 @@ function measure(selector) {
     "statediagram-state",
   ]);
   const diagrams = [];
-  for (const svg of document.querySelectorAll(selector)) {
+  // `diagram` is the 1-based position among ALL `selector` matches (flowchart or
+  // not) — the same number `screenshot` puts in its filenames.
+  for (const [matchIdx, svg] of [...document.querySelectorAll(selector)].entries()) {
     if (!(svg.getAttribute("aria-roledescription") || "").startsWith("flowchart")) continue;
     const cylinders = [];
     for (const n of svg.querySelectorAll(".node:has(> path.basic.label-container)")) {
@@ -180,7 +182,7 @@ function measure(selector) {
         title_height: Math.round(l.h),
       });
     }
-    diagrams.push({ cylinders, edges, contrastChecks, titles });
+    diagrams.push({ diagram: matchIdx + 1, cylinders, edges, contrastChecks, titles });
   }
   return diagrams;
 }
@@ -199,7 +201,7 @@ export async function run(opts) {
         await page.goto(pathToFileURL(p.file).href, { waitUntil: "load" });
         await page.evaluate(() => document.fonts?.ready);
         const diagrams = await page.evaluate(measure, opts.selector);
-        diagrams.forEach((d, i) => {
+        for (const d of diagrams) {
           for (const c of d.contrastChecks) {
             c.fill_hex = rgbToHex(c.fill);
             c.text_hex = rgbToHex(c.text);
@@ -207,8 +209,8 @@ export async function run(opts) {
             c.ratio = ratio === null ? null : +ratio.toFixed(2);
             c.wcag = wcagLevel(c.ratio);
           }
-          audit.push({ page: p.slug, theme, diagram: i + 1, ...d });
-        });
+          audit.push({ page: p.slug, theme, ...d });
+        }
       }
       await ctx.close();
     }

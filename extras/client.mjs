@@ -77,6 +77,10 @@ export function initDiagramZoom(opts) {
     window.setTimeout(() => URL.revokeObjectURL(href), 1000);
   }
 
+  // A 2xx is not enough: hosts that answer unknown paths with a 200 HTML page
+  // must not make Copy/Download offer HTML as a PNG.
+  const isImage = (res) => res.ok && (res.headers.get("content-type") || "").startsWith("image/");
+
   async function grabPng(mode) {
     const name = downloadName({
       prefix: opts.filenamePrefix,
@@ -86,12 +90,12 @@ export function initDiagramZoom(opts) {
     });
     try {
       const res = await fetch(urlFor(exportTransparent));
-      if (!res.ok) throw new Error(String(res.status));
-      const blob = await res.blob();
+      if (!isImage(res)) throw new Error(String(res.status));
+      const blob = new Blob([await res.blob()], { type: "image/png" });
       // Copy uses the async-clipboard image API; where it's missing (e.g.
       // Firefox) fall back to a download so the button still does something.
       if (mode === "copy" && navigator.clipboard && window.ClipboardItem) {
-        await navigator.clipboard.write([new ClipboardItem({ [blob.type || "image/png"]: blob })]);
+        await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
         showToast(labels.copied);
       } else {
         saveBlob(blob, name);
@@ -116,9 +120,10 @@ export function initDiagramZoom(opts) {
     // Probe the solid base (always built alongside the transparent variant).
     fetch(urlFor(false), { method: "HEAD" })
       .then((r) => {
-        dlBtn.hidden = !r.ok;
-        copyBtn.hidden = !(r.ok && navigator.clipboard && window.ClipboardItem);
-        bgBtn.hidden = !r.ok;
+        const ok = isImage(r);
+        dlBtn.hidden = !ok;
+        copyBtn.hidden = !(ok && navigator.clipboard && window.ClipboardItem);
+        bgBtn.hidden = !ok;
       })
       .catch(() => {});
   }

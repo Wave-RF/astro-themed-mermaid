@@ -43,6 +43,7 @@ import {
   DEFAULT_VARIANTS,
   diagramSlug,
   MARKER_ATTR,
+  normalizeBase,
   PNG_ATTR_PREFIX,
   pngAttrName,
   pngFileName,
@@ -250,6 +251,24 @@ export function diagramPng(options = {}) {
   };
 }
 
+/**
+ * Reader for the fingerprint: maps a stylesheet `href` as written in the built
+ * HTML (site-absolute, so it carries Astro's `base`) to its file under
+ * `distDir`. Returns the text, or null when it isn't a local file.
+ */
+export function localStyleReader(distDir, base = "") {
+  const b = normalizeBase(base);
+  return (href) => {
+    try {
+      let p = href.startsWith("/") ? href : `/${href}`;
+      if (b && p.startsWith(`${b}/`)) p = p.slice(b.length);
+      return readFileSync(resolve(distDir, `.${p}`), "utf8");
+    } catch {
+      return null;
+    }
+  };
+}
+
 async function run({ dir, pages, logger, cfg, root, base }) {
   const distDir = fileURLToPath(dir);
 
@@ -268,17 +287,7 @@ async function run({ dir, pages, logger, cfg, root, base }) {
   }
   if (diagramPages.length === 0) return;
 
-  const readLocal = (href) => {
-    try {
-      const f = resolve(
-        distDir,
-        `.${href.startsWith("/") ? "" : "/"}${href.startsWith("/") ? href : `/${href}`}`
-      );
-      return readFileSync(f, "utf8");
-    } catch {
-      return null;
-    }
-  };
+  const readLocal = localStyleReader(distDir, base);
 
   const cacheDir = cfg.cacheDir === false ? null : join(root, cfg.cacheDir);
   const manifestPath = cacheDir && join(cacheDir, "manifest.json");
@@ -338,78 +347,81 @@ async function run({ dir, pages, logger, cfg, root, base }) {
   }
 
   let made = 0;
-  const cacheOk = true;
   if (toRender.length > 0) {
-    const chromium = loadChromium(root);
-    const browser = await chromium.launch();
     try {
-      for (const theme of cfg.themes) {
-        const jobs = toRender.filter((j) => j.theme === theme);
-        if (jobs.length === 0) continue;
-        const ctx = await browser.newContext({
-          viewport: { width: 1800, height: 1200 },
-          deviceScaleFactor: cfg.scale,
-          colorScheme: theme === "light" || theme === "dark" ? theme : undefined,
-        });
-        // Set the theme the way the host site does (optional localStorage key +
-        // the attribute on <html>) before first paint, so the stylesheet's
-        // per-theme branch — and thus the diagram colors — is correct.
-        await ctx.addInitScript(themeInitScript, {
-          t: theme,
-          attr: cfg.themeAttr,
-          key: cfg.themeStorageKey,
-        });
-        const page = await ctx.newPage();
-        // `load`, not `networkidle`: some pages hold a long-lived connection that
-        // never goes idle. Diagrams are pre-rendered static SVG, so `load` +
-        // fonts.ready is all we need.
-        page.setDefaultNavigationTimeout(20000);
-        // Cap non-navigation actions too, so one wedged capture fails fast into
-        // the per-job catch instead of stalling 30s.
-        page.setDefaultTimeout(20000);
-        await routeDistAssets(page, distDir, base);
+      const chromium = loadChromium(root);
+      const browser = await chromium.launch();
+      try {
+        for (const theme of cfg.themes) {
+          const jobs = toRender.filter((j) => j.theme === theme);
+          if (jobs.length === 0) continue;
+          const ctx = await browser.newContext({
+            viewport: { width: 1800, height: 1200 },
+            deviceScaleFactor: cfg.scale,
+            colorScheme: theme === "light" || theme === "dark" ? theme : undefined,
+          });
+          // Set the theme the way the host site does (optional localStorage key +
+          // the attribute on <html>) before first paint, so the stylesheet's
+          // per-theme branch — and thus the diagram colors — is correct.
+          await ctx.addInitScript(themeInitScript, {
+            t: theme,
+            attr: cfg.themeAttr,
+            key: cfg.themeStorageKey,
+          });
+          const page = await ctx.newPage();
+          // `load`, not `networkidle`: some pages hold a long-lived connection that
+          // never goes idle. Diagrams are pre-rendered static SVG, so `load` +
+          // fonts.ready is all we need.
+          page.setDefaultNavigationTimeout(20000);
+          // Cap non-navigation actions too, so one wedged capture fails fast into
+          // the per-job catch instead of stalling 30s.
+          page.setDefaultTimeout(20000);
+          await routeDistAssets(page, distDir, base);
 
-        for (const job of jobs) {
-          try {
-            await page.goto(pathToFileURL(job.file).href, { waitUntil: "load" });
-            await page.evaluate(() => document.fonts?.ready);
-            // Read every diagram's markup + intrinsic size NOW, before the first
-            // render empties the body (rendering one destroys the others).
-            const diagrams = await extractDiagrams(page, cfg.selector);
-            for (let i = 0; i < diagrams.length; i++) {
-              for (const v of cfg.variants) {
-                const buf = await renderPng(page, diagrams[i], v, cfg);
-                await write(outPath(job.slug, i, theme, v), buf);
-                if (cacheDir)
-                  await write(join(cacheDir, `${job.hash}-${i}-${theme}${v.suffix}.png`), buf);
-                made++;
+          for (const job of jobs) {
+            try {
+              await page.goto(pathToFileURL(job.file).href, { waitUntil: "load" });
+              await page.evaluate(() => document.fonts?.ready);
+              // Read every diagram's markup + intrinsic size NOW, before the first
+              // render empties the body (rendering one destroys the others).
+              const diagrams = await extractDiagrams(page, cfg.selector);
+              for (let i = 0; i < diagrams.length; i++) {
+                for (const v of cfg.variants) {
+                  const buf = await renderPng(page, diagrams[i], v, cfg);
+                  await write(outPath(job.slug, i, theme, v), buf);
+                  if (cacheDir)
+                    await write(join(cacheDir, `${job.hash}-${i}-${theme}${v.suffix}.png`), buf);
+                  made++;
+                }
               }
-            }
-            // In-memory only; flushed once after every theme finishes (a
-            // mid-run kill just re-renders next build).
-            const ordinals = diagrams.map((d) => d.ordinal);
-            done.set(`${job.slug}|${theme}`, { count: diagrams.length, ordinals });
-            if (cacheOk) {
+              // In-memory only; flushed once after every theme finishes (a
+              // mid-run kill just re-renders next build).
+              const ordinals = diagrams.map((d) => d.ordinal);
+              done.set(`${job.slug}|${theme}`, { count: diagrams.length, ordinals });
               manifest[`${job.slug}|${theme}`] = {
                 hash: job.hash,
                 count: diagrams.length,
                 ordinals,
               };
+            } catch (err) {
+              // One stubborn page shouldn't sink the rest of the export.
+              logger.warn(`diagram PNGs: ${job.slug} [${theme}] skipped — ${err?.message || err}`);
             }
-          } catch (err) {
-            // One stubborn page shouldn't sink the rest of the export.
-            logger.warn(`diagram PNGs: ${job.slug} [${theme}] skipped — ${err?.message || err}`);
           }
+          await ctx.close();
         }
-        await ctx.close();
+      } finally {
+        await browser.close();
       }
-    } finally {
-      await browser.close();
-    }
-    if (cacheDir) {
-      await write(manifestPath, JSON.stringify(manifest, null, 2)).catch((err) =>
-        logger.warn(`diagram PNGs: render cache not saved — ${err?.message || err}`)
-      );
+      if (cacheDir) {
+        await write(manifestPath, JSON.stringify(manifest, null, 2)).catch((err) =>
+          logger.warn(`diagram PNGs: render cache not saved — ${err?.message || err}`)
+        );
+      }
+    } catch (err) {
+      // No browser (or it died): keep whatever is already in `done` — cached
+      // PNGs are in dist/ — and still stamp their data-png-* attributes below.
+      logger.warn(`diagram PNGs: rendering skipped — ${err?.message || err}`);
     }
   }
 
