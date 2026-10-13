@@ -7,8 +7,8 @@
 #   bash scripts/setup-repo.sh
 #
 # What it sets:
-#   - Merge method: squash only, squash subject = PR title (what release-please
-#     parses), delete head branch on merge.
+#   - Merge method: squash only, squash subject = PR title (what semantic-release
+#     reads), delete head branch on merge.
 #   - Branch protection on `main`: require a PR (0 approvals — solo-friendly),
 #     require the `ci` + `pr-title` status checks, dismiss stale reviews, require
 #     conversation resolution, BLOCK force-pushes and deletions. enforce_admins

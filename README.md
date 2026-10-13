@@ -29,9 +29,9 @@ pnpm add @wave-rf/astro-themed-mermaid rehype-mermaid
 `rehype-mermaid` (and its peer `mermaid`) is a peer dependency — you wire it up
 yourself (see below).
 
-Published under semver: `^0.3.0` tracks features and fixes without breaking
-changes (during `0.x`, breaking changes bump the minor). For the bleeding edge,
-the `dev` dist-tag follows `main`: `pnpm add @wave-rf/astro-themed-mermaid@dev`.
+Published under semver, automatically on merge to `main` (see
+[Releases](https://github.com/Wave-RF/astro-themed-mermaid/releases)). A breaking
+change releases a new major.
 
 > Diagram SSR needs a headless Chromium. `rehype-mermaid` uses Playwright —
 > `pnpm exec playwright install chromium` (Astro/Starlight setups usually do
