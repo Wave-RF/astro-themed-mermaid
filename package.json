@@ -92,7 +92,7 @@
     "@semantic-release/commit-analyzer": "13.0.1",
     "@semantic-release/release-notes-generator": "14.1.1",
     "conventional-changelog-conventionalcommits": "9.3.1",
-    "semantic-release": "25.0.9"
+    "semantic-release": "26.0.1"
   },
   "bin": {
     "astro-themed-mermaid": "./bin/astro-themed-mermaid.mjs"
